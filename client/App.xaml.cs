@@ -1,0 +1,58 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Windows;
+
+namespace Sleepy
+{
+    public partial class App : Application
+    {
+        public const string WindowTitle = "Sleepy Package Installer";
+        Mutex _single;
+        FileServer _fs;
+        Manager _mgr;
+
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+
+            bool first;
+            _single = new Mutex(true, @"Local\SleepyPackageInstallerClient", out first);
+            if (!first)
+            {
+                Native.ActivateExisting(WindowTitle);
+                Shutdown();
+                return;
+            }
+
+            DispatcherUnhandledException += (s, a) =>
+            {
+                try { File.AppendAllText(Path.Combine(ConfigStore.Dir, "client.log"), DateTime.Now + "  " + a.Exception + "\r\n"); } catch { }
+                MessageBox.Show("Something went wrong:\n\n" + a.Exception.Message, WindowTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+                a.Handled = true;
+            };
+
+            var cfg = new ConfigStore();
+            var lib = new Library();
+            _fs = new FileServer(lib);
+            try { _fs.Start(cfg.Get().FilePort); }
+            catch (Exception ex)
+            {
+                MessageBox.Show("The package server could not start:\n\n" + ex.Message, WindowTitle, MessageBoxButton.OK, MessageBoxImage.Error);
+                Shutdown();
+                return;
+            }
+            _mgr = new Manager(cfg, lib, _fs);
+            _mgr.Start();
+
+            new MainWindow(cfg, lib, _fs, _mgr).Show();
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            _mgr?.Stop();
+            _fs?.Stop();
+            base.OnExit(e);
+        }
+    }
+}

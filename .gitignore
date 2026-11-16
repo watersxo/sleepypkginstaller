@@ -5,3 +5,6 @@ eboot.bin
 sce_sys/param.sfo
 compile_commands.json
 .cache
+client/bin
+client/obj
+client/dist
