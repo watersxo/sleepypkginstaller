@@ -242,7 +242,9 @@ static void apply_progress(struct task_info* t, const struct bgft_download_task_
 	} else if (t->user_paused) {
 		t->state = TASK_PAUSED;
 		t->speed = 0;
-	} else if (t->total > 0 && t->transferred >= t->total) {
+	} else if (t->total > 0 && (t->transferred >= t->total ||
+	           (t->transferred * 100 / t->total >= 97 && t->idle_ticks >= STALL_TICKS))) {
+		/* Patches stop just short of 100% while the system installs them on its own. */
 		if (t->state != TASK_DONE) {
 			snprintf(msg, sizeof(msg), "Task %d download complete: %.60s", t->task_id, t->title);
 			log_line_locked(msg);
@@ -287,8 +289,13 @@ static void poll_tasks(void) {
 			if (ok) {
 				apply_progress(t, &progress);
 			} else if (++t->fail_ticks == MAX_FAIL_TICKS) {
-				t->state = TASK_ERROR;
-				t->error_code = ret;
+				if (t->total > 0 && t->transferred * 100 / t->total >= 95) {
+					/* the system removes the task once it has taken over the install */
+					t->state = TASK_DONE;
+				} else {
+					t->state = TASK_ERROR;
+					t->error_code = ret;
+				}
 				t->speed = 0;
 				snprintf(msg, sizeof(msg), "Task %d unavailable (0x%08X)", t->task_id, (unsigned int)ret);
 				log_line_locked(msg);

@@ -33,6 +33,8 @@ namespace Sleepy
         public long Added, Started, Finished;
         internal int Missing;
         internal DateTime StallSince = DateTime.MinValue;
+        internal DateTime NearEndSince = DateTime.MinValue;
+        internal long LastBytes = -1;
         internal bool WaitingForGame;
 
         public Job Clone() { return (Job)MemberwiseClone(); }
@@ -257,7 +259,12 @@ namespace Sleepy
                     {
                         ConsoleTask t;
                         if (byId.TryGetValue(j.TaskId, out t)) { j.Missing = 0; Apply(j, t); }
-                        else if (++j.Missing >= 3) Fail(j, "The task is no longer on the console (was the installer restarted?).");
+                        else if (++j.Missing >= 3)
+                        {
+                            // a task that vanishes at the end has been handed to the system installer
+                            if (j.Percent >= 95) { j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Installing on console"; }
+                            else Fail(j, "The task is no longer on the console (was the installer restarted?).");
+                        }
                     }
                 }
                 return;
@@ -315,20 +322,22 @@ namespace Sleepy
             j.Transferred = t.Transferred; j.Speed = t.Speed; j.Eta = t.RestSec; j.Phase = t.State;
             if (j.Total > 0) j.Percent = (int)Math.Min(100, t.Transferred * 100 / j.Total);
 
-            // The console reports "Waiting" when no bytes have moved for a few seconds. At the end of a download
-            // (updates stop at about 98-99%) this means it is finished and only waiting for the system to install it.
-            if (t.State == "Waiting" && j.Percent >= 97)
+            // Near the end the console installs the package by itself and the byte counter stops short of 100%.
+            // Once the bytes stop moving (or sit at 99% for a while) the download is over: move on to the next job.
+            bool live = t.State != "Error" && t.State != "Paused" && t.State != "Stopped" && t.State != "Complete";
+            if (t.Transferred != j.LastBytes) { j.LastBytes = t.Transferred; j.StallSince = DateTime.UtcNow; }
+            if (j.Percent < 97 || !live) j.NearEndSince = DateTime.MinValue;
+            else if (j.NearEndSince == DateTime.MinValue) j.NearEndSince = DateTime.UtcNow;
+            if (j.Percent >= 97 && live)
             {
-                if (j.StallSince == DateTime.MinValue) j.StallSince = DateTime.UtcNow;
-                if ((DateTime.UtcNow - j.StallSince).TotalSeconds >= 10)
+                double still = (DateTime.UtcNow - j.StallSince).TotalSeconds;
+                double near = (DateTime.UtcNow - j.NearEndSince).TotalSeconds;
+                if (still >= 5 || (j.Percent >= 99 && near >= 15))
                 {
-                    j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Waiting to install";
-                    if (j.Kind == Kinds.Update)
-                        j.Note = "Downloaded. On the PS4, close Sleepy Package Installer, then open Notifications > Downloads and press Install.";
+                    j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Installing on console";
                     return;
                 }
             }
-            else j.StallSince = DateTime.MinValue;
 
             switch (t.State)
             {

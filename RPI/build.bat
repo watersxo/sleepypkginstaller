@@ -2,7 +2,7 @@ SETLOCAL EnableDelayedExpansion
 
 Rem Package information
 set PKG_TITLE="Sleepy Package Installer"
-set PKG_VERSION="01.08"
+set PKG_VERSION="01.09"
 set PKG_ASSETS="assets"
 set PKG_TITLE_ID="KPBR01111"
 set PKG_CONTENT_ID="IV0000-KPBR01111_00-AAAAAAAAAAAAAAAA"

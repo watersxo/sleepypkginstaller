@@ -1,3 +1,8 @@
+## Sleepy Package Installer v1.09
+
+### Fixed in 1.09
+- **Updates no longer look stuck at 98-99%.** Updates for an installed game finish installing by themselves. A download that reaches 97% or more and stops moving (or whose task the system removes) is now reported as complete, and the "Close this app, then Notifications > Downloads > Install" message is gone.
+
 ## Sleepy Package Installer v1.08
 
 Install `.pkg` files on a jailbroken PS4 from your PC. Install the attached `.pkg` on the console, open it, and use the Sleepy PC client (or any sender) with the IP and port shown on screen.

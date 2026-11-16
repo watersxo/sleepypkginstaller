@@ -166,9 +166,6 @@ static void draw_task(int x, int y, int w, const struct task_info* t) {
 
 	if (t->state == TASK_ERROR) {
 		draw_textf(x + 20, y + 40, 2, col, "ERROR 0x%08X %s", (unsigned)t->error_code, error_hint(t->error_code));
-	} else if (percent >= 99 && t->state == TASK_STALLED) {
-		/* Updates are queued as packages: the system finishes them from the notifications. */
-		draw_textf(x + 20, y + 40, 2, COL_WARN, "Downloaded. Close this app, then Notifications > Downloads > Install");
 	} else {
 		format_bytes(speed, sizeof(speed), t->speed);
 		if (t->state == TASK_DOWNLOADING && t->rest_sec > 0) {
