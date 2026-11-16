@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -32,6 +32,8 @@ namespace Sleepy
         public int Dep;
         public long Added, Started, Finished;
         internal int Missing;
+        internal DateTime StallSince = DateTime.MinValue;
+        internal bool WaitingForGame;
 
         public Job Clone() { return (Job)MemberwiseClone(); }
     }
@@ -313,13 +315,20 @@ namespace Sleepy
             j.Transferred = t.Transferred; j.Speed = t.Speed; j.Eta = t.RestSec; j.Phase = t.State;
             if (j.Total > 0) j.Percent = (int)Math.Min(100, t.Transferred * 100 / j.Total);
 
-            // Updates are registered as packages: they stop at ~99% and are finished from the PS4's notifications.
-            if (j.Kind == Kinds.Update && t.State == "Waiting" && j.Percent >= 99)
+            // The console reports "Waiting" when no bytes have moved for a few seconds. At the end of a download
+            // (updates stop at about 98-99%) this means it is finished and only waiting for the system to install it.
+            if (t.State == "Waiting" && j.Percent >= 97)
             {
-                j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Ready to install";
-                j.Note = "Downloaded. On the PS4, close Sleepy Package Installer, then open Notifications > Downloads and press Install.";
-                return;
+                if (j.StallSince == DateTime.MinValue) j.StallSince = DateTime.UtcNow;
+                if ((DateTime.UtcNow - j.StallSince).TotalSeconds >= 10)
+                {
+                    j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Waiting to install";
+                    if (j.Kind == Kinds.Update)
+                        j.Note = "Downloaded. On the PS4, close Sleepy Package Installer, then open Notifications > Downloads and press Install.";
+                    return;
+                }
             }
+            else j.StallSince = DateTime.MinValue;
 
             switch (t.State)
             {
@@ -359,7 +368,7 @@ namespace Sleepy
             var start = new List<Job>();
             lock (_mu)
             {
-                int active = _jobs.Count(j => j.State == JobState.Sending || j.State == JobState.Downloading || j.State == JobState.Paused);
+                int active = _jobs.Count(j => (j.State == JobState.Sending && !j.WaitingForGame) || j.State == JobState.Downloading || j.State == JobState.Paused);
                 foreach (var j in _jobs)
                 {
                     if (active >= limit) break;
@@ -402,16 +411,19 @@ namespace Sleepy
             catch { FailJob(j, "The package file was removed. Rescan the library."); return; }
             if (pkg.Incomplete) { FailJob(j, "The package is incomplete (smaller than its header says)."); return; }
 
-            // updates and add-ons need the game to be installed first
+            // updates and add-ons need the game to be installed first; while they wait, other downloads may start
             if (j.Dep != 0)
             {
                 SetPhase(j, "Waiting for the game to finish installing");
-                var deadline = DateTime.UtcNow.AddMinutes(2);
+                lock (_mu) j.WaitingForGame = true;
+                var deadline = DateTime.UtcNow.AddMinutes(45);
                 while (DateTime.UtcNow < deadline)
                 {
+                    lock (_mu) if (j.State != JobState.Sending) { j.WaitingForGame = false; return; }
                     try { if (_con.Exists(host, port, j.TitleId)) break; } catch { }
                     Thread.Sleep(2000);
                 }
+                lock (_mu) { j.WaitingForGame = false; if (j.State != JobState.Sending) return; }
             }
 
             string pc = _cfg.Get().PcAddress;
