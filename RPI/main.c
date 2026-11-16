@@ -14,7 +14,7 @@
 #include <orbis/ShellUIUtil.h>
 #include <orbis/UserService.h>
 
-#define SERVER_PORT (12801)
+#define SERVER_PORT (12800)
 #define SERVER_PORT_TRIES (10)
 #define PORT_CONFIG_PATH "/data/rpi.port"
 #define NETWORK_RETRY_SEC (2)
