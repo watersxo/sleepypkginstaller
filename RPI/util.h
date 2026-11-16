@@ -7,6 +7,7 @@ bool get_language_id(int* lang_id);
 int bytes_to_hex(char* buf, size_t buf_size, const void* data, size_t data_size);
 
 bool read_file(const char* path, void** data, uint64_t* size, uint64_t max_size, uint64_t* nread);
+int64_t fd_size(int fd);
 bool write_file(const char* path, const void* data, uint64_t size, uint64_t* nwritten, int mode, unsigned int flags);
 bool write_file_trunc(const char* path, const void* data, uint64_t size, uint64_t* nwritten, int mode);
 

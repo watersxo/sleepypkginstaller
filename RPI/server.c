@@ -413,7 +413,7 @@ static bool install_pieces(sb_Stream* s, char** piece_urls, size_t piece_count) 
 		THROW_ERROR("Unable to allocate system file object for package '%s'.", piece_urls[0]);
 	}
 	if (!sfo_load_from_file(sfo, param_sfo_path)) {
-		THROW_ERROR("Unable to load system file object for package '%s'.", piece_urls[0]);
+		THROW_ERROR("Unable to read the title information of '%s': %s.", piece_urls[0], sfo_last_error());
 	}
 
 	snprintf(title_entry_key, sizeof(title_entry_key), "TITLE_%02d", lang_id);
@@ -888,7 +888,6 @@ static bool handle_root(sb_Stream* s, const char* method, const char* path, char
 }
 
 static bool handle_static(sb_Stream* s, const char* method, const char* path, char* in_data) {
-	struct stat stbuf;
 	const char* content_type;
 	const char* name;
 	char real_path[1024];
@@ -908,23 +907,18 @@ static bool handle_static(sb_Stream* s, const char* method, const char* path, ch
 
 	snprintf(real_path, sizeof(real_path), "%s/%s", s_work_dir, name);
 
-	ret = stat(real_path, &stbuf);
-	if (ret < 0) {
-		kick_error(s, 404, "Not found", "Page not found");
-		return false;
-	}
-
-	if (!S_ISREG(stbuf.st_mode)) {
-		kick_error(s, 403, "Forbidden", "Access is denied");
-		return false;
-	}
-
 	if (ends_with_nocase(real_path, ".json")) {
 		content_type = "application/json";
 	} else if (ends_with_nocase(real_path, ".png")) {
 		content_type = "image/png";
 	} else {
-		content_type = "application/octet-stream";
+		kick_error(s, 403, "Forbidden", "Access is denied");
+		return false;
+	}
+
+	if (!is_file_exists(real_path)) {
+		kick_error(s, 404, "Not found", "Page not found");
+		return false;
 	}
 
 	sb_send_status(s, 200, "OK");
@@ -984,7 +978,6 @@ static void kick_success_json(sb_Stream* s) {
 static void cleanup_temp_files(void) {
 	char full_path[1024];
 	char buf[8192];
-	struct stat stat_buf;
 	time_t now = time(NULL);
 	int fd;
 	int ret;
@@ -1018,9 +1011,14 @@ static void cleanup_temp_files(void) {
 
 			/* DT_REG == 8 */
 			if (entry->d_type == 8 && starts_with(entry->d_name, "tmp_") && (ends_with(entry->d_name, ".json") || ends_with(entry->d_name, ".sfo") || ends_with(entry->d_name, ".png"))) {
+				/* The creation time is part of the file name (tmp_<hex time>_<counter>), so no stat() is needed. */
+				char* end = NULL;
+				unsigned long long created = strtoull(entry->d_name + 4, &end, 16);
+
 				snprintf(full_path, sizeof(full_path), "%s/%s", s_work_dir, entry->d_name);
 
-				if (stat(full_path, &stat_buf) == 0 && now >= stat_buf.st_mtime && (now - stat_buf.st_mtime) >= (time_t)CLEANUP_DAY_COUNT * 24 * 60 * 60) {
+				if (end && *end == '_' && created > 1000000000ULL && (unsigned long long)now >= created
+					&& ((unsigned long long)now - created) >= (unsigned long long)CLEANUP_DAY_COUNT * 24 * 60 * 60) {
 					unlink(full_path);
 				}
 			}

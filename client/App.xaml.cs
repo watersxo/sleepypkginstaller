@@ -8,6 +8,7 @@ namespace Sleepy
     public partial class App : Application
     {
         public const string WindowTitle = "Sleepy Package Installer";
+        public const string ClientVersion = "1.1.0";
         Mutex _single;
         FileServer _fs;
         Manager _mgr;

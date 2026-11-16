@@ -28,4 +28,7 @@ void sfo_free(struct sfo* sfo);
 bool sfo_load_from_file(struct sfo* sfo, const char* file_path);
 bool sfo_load_from_memory(struct sfo* sfo, const void* data, size_t data_size);
 
+/* Human readable reason of the last failed sfo_load_* call (per thread is not needed: calls are short). */
+const char* sfo_last_error(void);
+
 struct sfo_entry* sfo_find_entry(struct sfo* sfo, const char* key);

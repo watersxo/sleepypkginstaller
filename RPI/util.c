@@ -59,9 +59,23 @@ err:
 	return ret;
 }
 
+/* The toolchain's struct stat does not match the PS4 kernel on every OpenOrbis release, so file sizes
+   are taken with lseek instead of fstat. Returns -1 on failure; the file offset is left at 0. */
+int64_t fd_size(int fd) {
+	off_t end = lseek(fd, 0, SEEK_END);
+
+	if (end < 0) {
+		return -1;
+	}
+	if (lseek(fd, 0, SEEK_SET) < 0) {
+		return -1;
+	}
+	return (int64_t)end;
+}
+
 bool read_file(const char* path, void** data, uint64_t* size, uint64_t max_size, uint64_t* nread) {
 	int fd = -1;
-	struct stat info;
+	int64_t sz;
 	uint64_t file_size, user_size;
 	uint64_t size_left, total = 0;
 	uint8_t* buf = NULL;
@@ -69,20 +83,19 @@ bool read_file(const char* path, void** data, uint64_t* size, uint64_t max_size,
 	ssize_t n;
 	bool need_alloc = false;
 	bool status = false;
-	int ret;
 
 	assert(path != NULL);
 	assert(data != NULL);
 	assert(size != NULL);
 
-	ret = fd = open(path, O_RDONLY);
-	if (ret < 0)
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
 		goto err;
 
-	ret = fstat(fd, &info);
-	if (ret < 0)
+	sz = fd_size(fd);
+	if (sz < 0)
 		goto err;
-	file_size = (uint64_t)info.st_size;
+	file_size = (uint64_t)sz;
 
 	/* User may provide his own buffer. */
 	buf = (uint8_t*)*data;
@@ -196,17 +209,17 @@ bool write_file_trunc(const char* path, const void* data, uint64_t size, uint64_
 }
 
 bool is_file_exists(const char* path) {
-	OrbisKernelStat stat_buf;
-	int ret;
+	int fd;
 
 	assert(path != NULL);
 
-	ret = sceKernelStat(path, &stat_buf);
-	if (ret) {
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
 		return false;
 	}
+	close(fd);
 
-	return S_ISREG(stat_buf.st_mode);
+	return true;
 }
 
 void hexdump(const void* data, size_t size) {

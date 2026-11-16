@@ -102,8 +102,11 @@
             <TextBlock Text="{Binding Status}" FontSize="12"/>
             <TextBlock Text="{Binding Right}" FontSize="12" Foreground="{StaticResource Dim}" HorizontalAlignment="Right"/>
           </Grid>
-          <TextBlock Text="{Binding Error}" FontSize="12" Foreground="{StaticResource Err}" TextWrapping="Wrap" Margin="0,5,0,0"
-                     Visibility="{Binding HasError, Converter={StaticResource BoolVis}}"/>
+          <StackPanel Visibility="{Binding HasError, Converter={StaticResource BoolVis}}" Margin="0,5,0,0">
+            <TextBox Text="{Binding Error, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" Foreground="{StaticResource Err}" Background="Transparent"
+                     BorderThickness="0" Padding="0" FontSize="12"/>
+            <Button Content="Copy error details" Style="{StaticResource GhostButton}" Padding="8,3" FontSize="12" HorizontalAlignment="Left" Margin="-8,4,0,0" Click="CopyError_Click"/>
+          </StackPanel>
         </StackPanel>
       </Border>
     </DataTemplate>

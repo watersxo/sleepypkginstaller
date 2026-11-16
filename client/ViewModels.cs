@@ -246,6 +246,7 @@ namespace Sleepy
         public string Status { get { return _status; } private set { Set(ref _status, value); } }
         public string Right { get { return _right; } private set { Set(ref _right, value); } }
         public string Error { get { return _error; } private set { Set(ref _error, value); Raise("HasError"); } }
+        public string Detail { get; private set; } = "";
         public bool HasError { get { return !string.IsNullOrEmpty(_error); } }
         public double Percent { get { return _percent; } private set { Set(ref _percent, value); } }
         public Brush Bar { get { return _bar; } private set { Set(ref _bar, value); } }
@@ -265,6 +266,7 @@ namespace Sleepy
             KindText = j.Kind == Kinds.Base ? "GAME" : j.Kind == Kinds.Update ? "UPDATE " + j.Version : "DLC";
             State = j.State;
             Error = j.Error;
+            Detail = j.Detail;
             Percent = j.State == JobState.Done ? 100 : j.Percent;
 
             string right = "";

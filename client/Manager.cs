@@ -27,6 +27,7 @@ namespace Sleepy
         public long Transferred, Total, Speed;
         public int Eta;
         public string Error = "";
+        public string Detail = "";
         public int Dep;
         public long Added, Started, Finished;
         internal int Missing;
@@ -269,14 +270,43 @@ namespace Sleepy
             }
         }
 
-        static void Fail(Job j, string msg)
-        {
-            j.State = JobState.Error; j.Error = msg; j.Speed = 0; j.Finished = Now();
-        }
-
         static long Now() { return DateTimeOffset.UtcNow.ToUnixTimeSeconds(); }
 
-        static void Apply(Job j, ConsoleTask t)
+        // Marks a job failed and records everything useful for a bug report.
+        void Fail(Job j, string msg)
+        {
+            j.State = JobState.Error; j.Error = msg; j.Speed = 0; j.Finished = Now();
+            j.Detail = BuildDetail(j, msg);
+        }
+
+        string BuildDetail(Job j, string msg)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Sleepy Package Installer client " + App.ClientVersion);
+            sb.AppendLine("Time: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            sb.AppendLine("Error: " + msg);
+            sb.AppendLine("Job: " + j.Name + " (" + j.Kind + (string.IsNullOrEmpty(j.Version) ? "" : " " + j.Version) + "), state before failure: " + j.Phase);
+            var p = _lib.Pkg(j.PkgId);
+            if (p != null)
+            {
+                sb.AppendLine("File: " + p.Path);
+                sb.AppendLine("File size: " + p.Size + " bytes; size in package header: " + p.PkgSize + (p.Incomplete ? " (MISMATCH: incomplete file)" : ""));
+                sb.AppendLine("Content ID: " + p.ContentId + "; title ID: " + p.TitleId + "; category: " + p.Category + "; app version: " + p.Version);
+                sb.AppendLine("Served as: " + _fs.Url(PcAddressFast(), p.Id));
+            }
+            ConsoleState s; lock (_mu) { s = _state; }
+            sb.AppendLine("Console: " + s.Host + ":" + s.Port + (s.Sleepy ? " (Sleepy Package Installer)" : " (older installer)") + ", state: " + s.Message);
+            sb.AppendLine("Console task id: " + j.TaskId);
+            return sb.ToString();
+        }
+
+        string PcAddressFast()
+        {
+            var a = _cfg.Get().PcAddress;
+            return string.IsNullOrEmpty(a) ? "<this PC>" : a;
+        }
+
+        void Apply(Job j, ConsoleTask t)
         {
             if (t.Total > 0) j.Total = t.Total; else if (j.Total == 0) j.Total = j.Size;
             j.Transferred = t.Transferred; j.Speed = t.Speed; j.Eta = t.RestSec; j.Phase = t.State;
@@ -478,7 +508,7 @@ namespace Sleepy
                     if (state != JobState.Error && state != JobState.Canceled) return;
                     lock (_mu)
                     {
-                        j.State = JobState.Queued; j.Phase = ""; j.Error = ""; j.TaskId = -1; j.Percent = 0; j.Transferred = 0;
+                        j.State = JobState.Queued; j.Phase = ""; j.Error = ""; j.Detail = ""; j.TaskId = -1; j.Percent = 0; j.Transferred = 0;
                         j.Total = j.Size; j.Speed = 0; j.Eta = 0; j.Missing = 0; j.Added = Now();
                     }
                     break;

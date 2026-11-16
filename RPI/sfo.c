@@ -71,49 +71,57 @@ void sfo_free(struct sfo* sfo) {
 	free(sfo);
 }
 
+static char s_sfo_error[160] = "";
+
+const char* sfo_last_error(void) {
+	return s_sfo_error;
+}
+
+#define SFO_FAIL(...) \
+	do { \
+		snprintf(s_sfo_error, sizeof(s_sfo_error), __VA_ARGS__); \
+		EPRINTF("%s\n", s_sfo_error); \
+		goto err; \
+	} while (0)
+
 bool sfo_load_from_file(struct sfo* sfo, const char* file_path) {
-	struct stat stats;
 	uint8_t* data = NULL;
 	size_t data_size;
+	int64_t file_size;
 	ssize_t nread;
 	int fd = -1;
 	bool status = false;
-	int ret;
 
 	assert(sfo != NULL);
 	assert(file_path != NULL);
 
+	s_sfo_error[0] = '\0';
+
 	fd = open(file_path, O_RDONLY);
 	if (fd < 0) {
-		EPRINTF("Unable to open file.\n");
-		goto err;
+		SFO_FAIL("cannot open the saved param.sfo (errno %d)", errno);
 	}
 
-	ret = fstat(fd, &stats);
-	if (ret < 0) {
-		EPRINTF("Unable to get file information.\n");
-		goto err;
+	file_size = fd_size(fd);
+	if (file_size <= 0) {
+		SFO_FAIL("the saved param.sfo is empty or unreadable (size %lld)", (long long)file_size);
 	}
-	data_size = (size_t)stats.st_size;
+	data_size = (size_t)file_size;
 
 	data = (uint8_t*)malloc(data_size);
 	if (!data) {
-		EPRINTF("Unable to allocate memory of 0x%" PRIuMAX " bytes.\n", (uintmax_t)data_size);
-		goto err;
+		SFO_FAIL("no memory for param.sfo (%llu bytes)", (unsigned long long)data_size);
 	}
 
 	nread = read(fd, data, data_size);
 	if (nread < 0) {
-		EPRINTF("Unable to read file.\n");
-		goto err;
+		SFO_FAIL("cannot read the saved param.sfo (errno %d)", errno);
 	}
 	if ((size_t)nread != data_size) {
-		EPRINTF("Insufficient data read.\n");
-		goto err;
+		SFO_FAIL("short read of param.sfo (%lld of %llu bytes)", (long long)nread, (unsigned long long)data_size);
 	}
 
 	if (!sfo_load_from_memory(sfo, data, data_size)) {
-		EPRINTF("Unable to load system file object.\n");
 		goto err;
 	}
 
@@ -124,7 +132,7 @@ err:
 		free(data);
 	}
 
-	if (fd > 0) {
+	if (fd >= 0) {
 		close(fd);
 	}
 
@@ -137,8 +145,6 @@ bool sfo_load_from_memory(struct sfo* sfo, const void* data, size_t data_size) {
 	struct sfo_table_entry* entry;
 	struct sfo_entry* entries = NULL;
 	struct sfo_entry* new_entry = NULL;
-	const char* key_table;
-	const uint8_t* value_table;
 	size_t entry_count, i;
 	bool status = false;
 
@@ -146,33 +152,36 @@ bool sfo_load_from_memory(struct sfo* sfo, const void* data, size_t data_size) {
 	assert(data != NULL);
 
 	if (data_size < sizeof(*hdr)) {
-		EPRINTF("Insufficient data.\n");
-		goto err;
+		SFO_FAIL("param.sfo is too short (%llu bytes)", (unsigned long long)data_size);
 	}
 
 	hdr = (struct sfo_header*)data;
 	if (memcmp(hdr->magic, SFO_MAGIC, sizeof(hdr->magic)) != 0) {
-		EPRINTF("Invalid system file object format.\n");
-		goto err;
+		SFO_FAIL("param.sfo has a wrong signature (%02X %02X %02X %02X, %llu bytes)", (unsigned)(uint8_t)hdr->magic[0], (unsigned)(uint8_t)hdr->magic[1],
+			(unsigned)(uint8_t)hdr->magic[2], (unsigned)(uint8_t)hdr->magic[3], (unsigned long long)data_size);
 	}
 
 	entry_table = (struct sfo_table_entry*)(data + sizeof(*hdr));
 	entry_count = LE32(hdr->entry_count);
-	if (data_size < sizeof(*hdr) + entry_count * sizeof(*entry_table)) {
-		EPRINTF("Insufficient data.\n");
-		goto err;
+	if (entry_count > 4096 || data_size < sizeof(*hdr) + entry_count * sizeof(*entry_table)) {
+		SFO_FAIL("param.sfo has an invalid entry count (%llu entries, %llu bytes)", (unsigned long long)entry_count, (unsigned long long)data_size);
 	}
 
-	key_table = (const char*)data + LE32(hdr->key_table_offset);
-	value_table = (const uint8_t*)data + LE32(hdr->value_table_offset);
+	if (LE32(hdr->key_table_offset) >= data_size || LE32(hdr->value_table_offset) > data_size) {
+		SFO_FAIL("param.sfo has invalid table offsets (keys 0x%X, values 0x%X, %llu bytes)", (unsigned)LE32(hdr->key_table_offset),
+			(unsigned)LE32(hdr->value_table_offset), (unsigned long long)data_size);
+	}
 
 	for (i = 0; i < entry_count; ++i) {
+		size_t key_off, val_off;
+
 		entry = entry_table + i;
+		key_off = LE32(hdr->key_table_offset) + LE16(entry->key_offset);
+		val_off = LE32(hdr->value_table_offset) + LE32(entry->value_offset);
 
 		new_entry = (struct sfo_entry*)malloc(sizeof(*new_entry));
 		if (!new_entry) {
-			EPRINTF("Unable to allocate memory for entry.\n");
-			goto err;
+			SFO_FAIL("out of memory while reading param.sfo entry %llu", (unsigned long long)i);
 		}
 		memset(new_entry, 0, sizeof(*new_entry));
 
@@ -180,26 +189,29 @@ bool sfo_load_from_memory(struct sfo* sfo, const void* data, size_t data_size) {
 
 		new_entry->size = LE32(entry->size);
 		new_entry->area = LE32(entry->max_size);
+		/* Some packages report a smaller maximum than the stored size; the stored size is what matters. */
 		if (new_entry->area < new_entry->size) {
-			EPRINTF("Unexpected entry sizes.\n");
-			goto err;
+			new_entry->area = new_entry->size;
+		}
+		if (key_off >= data_size || val_off > data_size || new_entry->size > data_size - val_off) {
+			SFO_FAIL("param.sfo entry %llu points outside the file (key 0x%llX, value 0x%llX, size %llu, file %llu bytes)", (unsigned long long)i,
+				(unsigned long long)key_off, (unsigned long long)val_off, (unsigned long long)new_entry->size, (unsigned long long)data_size);
 		}
 
-		new_entry->key = strdup(key_table + LE16(entry->key_offset));
+		new_entry->key = strndup((const char*)data + key_off, data_size - key_off);
 		if (!new_entry->key) {
-			EPRINTF("Unable to allocate memory for entry key.\n");
-			goto err;
+			SFO_FAIL("out of memory while reading param.sfo entry %llu", (unsigned long long)i);
 		}
 
-		new_entry->value = (uint8_t*)malloc(new_entry->area);
+		new_entry->value = (uint8_t*)malloc(new_entry->area + 1);
 		if (!new_entry->value) {
-			EPRINTF("Unable to allocate memory for entry value.\n");
-			goto err;
+			SFO_FAIL("out of memory while reading param.sfo entry %llu", (unsigned long long)i);
 		}
-		memset(new_entry->value, 0, new_entry->area);
-		memcpy(new_entry->value, value_table + LE16(entry->value_offset), new_entry->size);
+		memset(new_entry->value, 0, new_entry->area + 1);
+		memcpy(new_entry->value, (const uint8_t*)data + val_off, new_entry->size);
 
 		DL_APPEND(entries, new_entry);
+		new_entry = NULL;
 	}
 	new_entry = NULL;
 

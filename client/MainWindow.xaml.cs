@@ -340,6 +340,17 @@ namespace Sleepy
             });
         }
 
+        void CopyError_Click(object sender, RoutedEventArgs e)
+        {
+            var vm = (JobVM)((FrameworkElement)sender).DataContext;
+            try
+            {
+                Clipboard.SetText(string.IsNullOrEmpty(vm.Detail) ? vm.Error : vm.Detail);
+                Toast("Error details copied to the clipboard.");
+            }
+            catch { Toast("Could not access the clipboard.", true); }
+        }
+
         void PauseAll_Click(object sender, RoutedEventArgs e) { Task.Run(() => _mgr.BulkOp("pause")); }
         void ResumeAll_Click(object sender, RoutedEventArgs e) { Task.Run(() => _mgr.BulkOp("resume")); }
         void ClearDone_Click(object sender, RoutedEventArgs e) { _mgr.ClearFinished(); }

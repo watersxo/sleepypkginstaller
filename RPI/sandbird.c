@@ -27,6 +27,7 @@
 
 #include "sandbird.h"
 #include "KPutil.h"
+#include "util.h"
 #include <orbis/Net.h>
 #include <orbis/libkernel.h>
 #include <sys/time.h>
@@ -626,21 +627,22 @@ int sb_send_header(sb_Stream *st, const char *field, const char *val) {
 int sb_send_file(sb_Stream *st, const char *filename) {
   int err;
   char buf[32];
-  struct stat stbuf;
+  int64_t file_size;
   int fd = -1;
   if (st->state > STATE_SENDING_HEADER) {
     return SB_EBADSTATE;
   }
   /* Try to open file */
   fd = open(filename, O_RDONLY);
-  if (fd <= 0) return SB_ECANTOPEN;
+  if (fd < 0) return SB_ECANTOPEN;
 
-  /* Get file size and write headers */
-  if (fstat(fd, &stbuf) < 0) {
+  /* Get file size and write headers (lseek: the toolchain's struct stat is not reliable) */
+  file_size = fd_size(fd);
+  if (file_size < 0) {
     err = SB_EBADRESULT;
     goto fail;
   }
-  snprintf(buf, sizeof(buf), "%" PRIuMAX, (uintmax_t)stbuf.st_size);
+  snprintf(buf, sizeof(buf), "%" PRIuMAX, (uintmax_t)file_size);
   err = sb_send_header(st, "Content-Length", buf);
   if (err) goto fail;
   err = sb_stream_finalize_header(st);
