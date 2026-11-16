@@ -1,0 +1,53 @@
+name: Build and release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TOOLCHAIN_URL: https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.3/toolchain-llvm-18.2.zip
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: sudo apt-get update && sudo apt-get install -y clang lld make unzip
+
+      - name: Download OpenOrbis toolchain
+        run: |
+          curl -fsSL -o toolchain.zip "$TOOLCHAIN_URL"
+          unzip -q toolchain.zip
+          tar -xzf toolchain-llvm-18.tar.gz
+          echo "OO_PS4_TOOLCHAIN=$PWD/OpenOrbis/PS4Toolchain" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          chmod +x "$OO_PS4_TOOLCHAIN"/bin/linux/*
+          make
+
+      - name: Name the package
+        id: pkg
+        run: |
+          VERSION=$(sed -n 's/^VERSION *:= *//p' Makefile)
+          NAME="SleepyPackageInstaller-v${VERSION}.pkg"
+          mv IV0000-*.pkg "$NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: ${{ steps.pkg.outputs.name }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pkg.outputs.name }}
+          body_path: RELEASE_NOTES.md
