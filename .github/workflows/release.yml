@@ -30,7 +30,13 @@ jobs:
       - name: Build
         run: |
           chmod +x "$OO_PS4_TOOLCHAIN"/bin/linux/*
-          make
+          export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+          set -o pipefail
+          if ! make 2>&1 | tee build.log; then
+            msg=$(grep -m12 -iE 'error|\*\*\*|no such|cannot|not found|undefined' build.log | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A",$0}')
+            echo "::error::${msg}"
+            exit 1
+          fi
 
       - name: Name the package
         id: pkg
