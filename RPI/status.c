@@ -319,11 +319,18 @@ static void refresh_ip(void) {
 
 static void* monitor_thread(void* arg) {
 	int tick = 0;
+	int slept;
 
 	(void)arg;
 
-	while (s_monitor_running) {
-		sceKernelUsleep(1000 * 1000);
+	while (__atomic_load_n(&s_monitor_running, __ATOMIC_SEQ_CST)) {
+		/* Sleep in short slices so shutting down never waits a full second. */
+		for (slept = 0; slept < 10 && __atomic_load_n(&s_monitor_running, __ATOMIC_SEQ_CST); ++slept) {
+			sceKernelUsleep(100 * 1000);
+		}
+		if (!__atomic_load_n(&s_monitor_running, __ATOMIC_SEQ_CST)) {
+			break;
+		}
 
 		poll_tasks();
 		if (++tick % IP_REFRESH_TICKS == 0) {
@@ -342,7 +349,7 @@ bool status_start_monitor(void) {
 		return true;
 	}
 
-	s_monitor_running = true;
+	__atomic_store_n(&s_monitor_running, true, __ATOMIC_SEQ_CST);
 
 	pthread_attr_init(&attr);
 	pthread_attr_setstacksize(&attr, MONITOR_STACK_SIZE);
@@ -350,17 +357,23 @@ bool status_start_monitor(void) {
 	pthread_attr_destroy(&attr);
 	if (ret) {
 		EPRINTF("Unable to start status monitor: %d\n", ret);
-		s_monitor_running = false;
+		__atomic_store_n(&s_monitor_running, false, __ATOMIC_SEQ_CST);
 		return false;
 	}
-	pthread_detach(s_monitor_thread);
 
 	s_monitor_started = true;
 	return true;
 }
 
+/* Stops the monitor and waits for it, so BGFT and the network can be shut down safely afterwards. */
 void status_fini(void) {
-	s_monitor_running = false;
+	if (!s_monitor_started) {
+		return;
+	}
+
+	__atomic_store_n(&s_monitor_running, false, __ATOMIC_SEQ_CST);
+	pthread_join(s_monitor_thread, NULL);
+	s_monitor_started = false;
 }
 
 static size_t json_escape(char* dst, size_t dst_size, const char* src) {

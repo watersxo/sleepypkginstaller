@@ -102,6 +102,8 @@
             <TextBlock Text="{Binding Status}" FontSize="12"/>
             <TextBlock Text="{Binding Right}" FontSize="12" Foreground="{StaticResource Dim}" HorizontalAlignment="Right"/>
           </Grid>
+          <TextBlock Text="{Binding Note}" FontSize="12" Foreground="{StaticResource Warn}" TextWrapping="Wrap" Margin="0,5,0,0"
+                     Visibility="{Binding HasNote, Converter={StaticResource BoolVis}}"/>
           <StackPanel Visibility="{Binding HasError, Converter={StaticResource BoolVis}}" Margin="0,5,0,0">
             <TextBox Text="{Binding Error, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" Foreground="{StaticResource Err}" Background="Transparent"
                      BorderThickness="0" Padding="0" FontSize="12"/>

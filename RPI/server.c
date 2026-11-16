@@ -145,6 +145,10 @@ bool server_listen(void) {
 	return true;
 }
 
+void server_request_stop(void) {
+	s_stop_requested = true;
+}
+
 void server_stop(void) {
 	if (!s_server_started) {
 		return;

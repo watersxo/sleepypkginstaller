@@ -247,6 +247,9 @@ namespace Sleepy
         public string Right { get { return _right; } private set { Set(ref _right, value); } }
         public string Error { get { return _error; } private set { Set(ref _error, value); Raise("HasError"); } }
         public string Detail { get; private set; } = "";
+        string _note = "";
+        public string Note { get { return _note; } private set { Set(ref _note, value); Raise("HasNote"); } }
+        public bool HasNote { get { return !string.IsNullOrEmpty(_note); } }
         public bool HasError { get { return !string.IsNullOrEmpty(_error); } }
         public double Percent { get { return _percent; } private set { Set(ref _percent, value); } }
         public Brush Bar { get { return _bar; } private set { Set(ref _bar, value); } }
@@ -267,6 +270,7 @@ namespace Sleepy
             State = j.State;
             Error = j.Error;
             Detail = j.Detail;
+            Note = j.Note;
             Percent = j.State == JobState.Done ? 100 : j.Percent;
 
             string right = "";

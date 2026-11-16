@@ -166,6 +166,9 @@ static void draw_task(int x, int y, int w, const struct task_info* t) {
 
 	if (t->state == TASK_ERROR) {
 		draw_textf(x + 20, y + 40, 2, col, "ERROR 0x%08X %s", (unsigned)t->error_code, error_hint(t->error_code));
+	} else if (percent >= 99 && t->state == TASK_STALLED) {
+		/* Updates are queued as packages: the system finishes them from the notifications. */
+		draw_textf(x + 20, y + 40, 2, COL_WARN, "Downloaded. Close this app, then Notifications > Downloads > Install");
 	} else {
 		format_bytes(speed, sizeof(speed), t->speed);
 		if (t->state == TASK_DOWNLOADING && t->rest_sec > 0) {
@@ -312,6 +315,26 @@ err_close:
 	return false;
 }
 
+static void release_video(void) {
+	if (s_video < 0) {
+		return;
+	}
+
+	sceVideoOutUnregisterBuffers(s_video, 0);
+	sceKernelDeleteEqueue(s_flip_queue);
+	sceVideoOutClose(s_video);
+	s_video = -1;
+
+	if (s_video_mem) {
+		sceKernelMunmap(s_video_mem, s_direct_mem_size);
+		s_video_mem = NULL;
+	}
+	if (s_direct_mem_size) {
+		sceKernelReleaseDirectMemory(s_direct_mem_off, s_direct_mem_size);
+		s_direct_mem_size = 0;
+	}
+}
+
 static void present(int index) {
 	OrbisKernelEvent evt;
 	OrbisVideoOutFlipStatus flip_status;
@@ -393,14 +416,23 @@ bool screen_start(void) {
 	if (ret) {
 		EPRINTF("Unable to start screen thread: %d\n", ret);
 		s_running = false;
+		release_video();
 		return false;
 	}
-	pthread_detach(s_thread);
 
 	s_started = true;
 	return true;
 }
 
+/* Stops drawing and gives the display resources back to the system. Safe to call more than once. */
 void screen_stop(void) {
+	if (!s_started) {
+		return;
+	}
+
 	s_running = false;
+	pthread_join(s_thread, NULL);
+	s_started = false;
+
+	release_video();
 }

@@ -35,6 +35,11 @@ static void unset_privileges(void);
 
 static void cleanup(void);
 
+static void on_terminate(int sig) {
+	(void)sig;
+	server_request_stop();
+}
+
 typedef struct {
 	uid_t uid;
 	uid_t ruid;
@@ -161,6 +166,10 @@ int main(int argc, const char* const argv[])
 	int ret;
 
 	signal(SIGPIPE, SIG_IGN);
+	/* When the system asks the app to quit, leave the server loop so everything shuts down in order. */
+	signal(SIGTERM, &on_terminate);
+	signal(SIGINT, &on_terminate);
+	signal(SIGHUP, &on_terminate);
 
 	atexit(&cleanup);
 
@@ -230,6 +239,10 @@ int main(int argc, const char* const argv[])
 
 	Notify("Sleepy Package Installer\nIP:     %s\nPort: %i", ip_address, port);
 	server_listen();
+
+	/* Stop the helper threads first: they use BGFT, the network and the display that are torn down below. */
+	screen_stop();
+	status_fini();
 
 	server_stop();
 
@@ -456,6 +469,9 @@ static void unload_modules(void) {
 
 static void cleanup(void) 
 {
+	/* No-ops when main() has already stopped them; protects the module unloading below. */
+	screen_stop();
+	status_fini();
 	unload_modules();
 }
 

@@ -28,6 +28,7 @@ namespace Sleepy
         public int Eta;
         public string Error = "";
         public string Detail = "";
+        public string Note = "";
         public int Dep;
         public long Added, Started, Finished;
         internal int Missing;
@@ -312,6 +313,14 @@ namespace Sleepy
             j.Transferred = t.Transferred; j.Speed = t.Speed; j.Eta = t.RestSec; j.Phase = t.State;
             if (j.Total > 0) j.Percent = (int)Math.Min(100, t.Transferred * 100 / j.Total);
 
+            // Updates are registered as packages: they stop at ~99% and are finished from the PS4's notifications.
+            if (j.Kind == Kinds.Update && t.State == "Waiting" && j.Percent >= 99)
+            {
+                j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Ready to install";
+                j.Note = "Downloaded. On the PS4, close Sleepy Package Installer, then open Notifications > Downloads and press Install.";
+                return;
+            }
+
             switch (t.State)
             {
                 case "Complete":
@@ -508,7 +517,7 @@ namespace Sleepy
                     if (state != JobState.Error && state != JobState.Canceled) return;
                     lock (_mu)
                     {
-                        j.State = JobState.Queued; j.Phase = ""; j.Error = ""; j.Detail = ""; j.TaskId = -1; j.Percent = 0; j.Transferred = 0;
+                        j.State = JobState.Queued; j.Phase = ""; j.Error = ""; j.Detail = ""; j.Note = ""; j.TaskId = -1; j.Percent = 0; j.Transferred = 0;
                         j.Total = j.Size; j.Speed = 0; j.Eta = 0; j.Missing = 0; j.Added = Now();
                     }
                     break;
