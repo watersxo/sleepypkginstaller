@@ -383,7 +383,12 @@ bool pkg_setup_prerequisites(char** piece_urls, size_t piece_count, const char* 
 next:;
 	}
 
-	if (param_sfo_offset > 0 && param_sfo_size > 0) {
+	if (!(param_sfo_offset > 0 && param_sfo_size > 0)) {
+		PKG_THROW_ERROR("No param.sfo entry found in '%s' (%u entries).\n", piece_urls[0], (unsigned)entry_count);
+		goto err;
+	}
+
+	{
 		//printf("Downloading %s: %s\n", "param.sfo", piece_urls[0]);
 		param_sfo_dl_size = param_sfo_size;
 		if (!fetch_range(piece_urls[0], hdr_data, hdr_size, param_sfo_offset, param_sfo_dl_size, &param_sfo_data, &param_sfo_dl_size)) {
@@ -395,19 +400,21 @@ next:;
 			PKG_THROW_ERROR("%s size mismatch for '%s'.\n", "param.sfo", piece_urls[0]);
 			goto err;
 		}
-	}
-
-	if (icon0_png_offset > 0 && icon0_png_size > 0) {
-		//printf("Downloading %s: %s\n", "icon0.png", piece_urls[0]);
-		icon0_png_dl_size = icon0_png_size;
-		if (!fetch_range(piece_urls[0], hdr_data, hdr_size, icon0_png_offset, icon0_png_dl_size, &icon0_png_data, &icon0_png_dl_size)) {
-			PKG_THROW_ERROR("Unable to download %s for '%s'.\n", "icon0.png", piece_urls[0]);
+		if (param_sfo_size < 4 || memcmp(param_sfo_data, "\0PSF", 4) != 0) {
+			PKG_THROW_ERROR("Invalid %s data (offset 0x%X, size 0x%X, first bytes %02X %02X %02X %02X).\n", "param.sfo", (unsigned)param_sfo_offset, (unsigned)param_sfo_size,
+				param_sfo_size > 0 ? param_sfo_data[0] : 0, param_sfo_size > 1 ? param_sfo_data[1] : 0, param_sfo_size > 2 ? param_sfo_data[2] : 0, param_sfo_size > 3 ? param_sfo_data[3] : 0);
 			goto err;
 		}
-		//printf("icon0.png size: 0x%" PRIX64 "\n", icon0_png_dl_size);
-		if (icon0_png_dl_size != icon0_png_size) {
-			PKG_THROW_ERROR("%s size mismatch for '%s'.\n", "icon0.png", piece_urls[0]);
-			goto err;
+	}
+
+	/* The icon is cosmetic: never fail the install because of it. */
+	if (icon0_png_offset > 0 && icon0_png_size > 0 && icon0_png_size <= (4u * 1024 * 1024)) {
+		icon0_png_dl_size = icon0_png_size;
+		if (!fetch_range(piece_urls[0], hdr_data, hdr_size, icon0_png_offset, icon0_png_dl_size, &icon0_png_data, &icon0_png_dl_size) || icon0_png_dl_size != icon0_png_size || memcmp(icon0_png_data, "\x89PNG", 4) != 0) {
+			free(icon0_png_data);
+			icon0_png_data = NULL;
+			icon0_png_size = 0;
+			icon0_png_offset = 0;
 		}
 	}
 

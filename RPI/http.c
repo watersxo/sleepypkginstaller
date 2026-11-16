@@ -23,6 +23,7 @@ struct download_file_cb_args {
 	uint64_t data_size;
 	uint64_t actual_size;
 	uint64_t content_length;
+	uint64_t skip;
 	bool is_partial;
 	int status_code;
 };
@@ -184,6 +185,7 @@ bool http_download_file(const char* url, uint8_t** data, uint64_t* data_size, ui
 	}
 
 	if (offset > 0 && args.data_size > 0) {
+		args.skip = offset;
 		snprintf(range_str, sizeof(range_str), "bytes=%" PRIu64 "-%" PRIu64, offset, offset + args.data_size - 1);
 		headers[header_count * 2 + 0] = "Range";
 		headers[header_count * 2 + 1] = range_str;
@@ -391,6 +393,31 @@ static int download_file_cb(void* arg, int req_id, int status_code, uint64_t con
 		goto err_partial_xfer;
 	}
 	memset(cur_data, 0, total_size + 1);
+
+	/* The server ignored the Range header and sent the whole file from the start: skip to the requested offset. */
+	if (status_code == 200 && args->skip > 0) {
+		uint64_t skipped = 0;
+		uint8_t* scratch = (uint8_t*)malloc(DOWNLOAD_CHUNK_SIZE);
+
+		if (!scratch) {
+			ret = SCE_HTTP_ERROR_OUT_OF_MEMORY;
+			goto err_partial_xfer;
+		}
+		while (skipped < args->skip) {
+			uint64_t want = args->skip - skipped;
+			if (want > DOWNLOAD_CHUNK_SIZE) {
+				want = DOWNLOAD_CHUNK_SIZE;
+			}
+			ret = sceHttpReadData(req_id, scratch, (unsigned int)want);
+			if (ret <= 0) {
+				free(scratch);
+				ret = ret < 0 ? ret : SCE_HTTP_ERROR_INVALID_VALUE;
+				goto err_partial_xfer;
+			}
+			skipped += ret;
+		}
+		free(scratch);
+	}
 
 	while (cur_size < total_size) {
 		chunk_size = total_size - cur_size;
