@@ -2,7 +2,7 @@
 
 #include "common.h"
 
-#define RPI_VERSION "1.06"
+#define RPI_VERSION "1.07"
 
 #define STATUS_MAX_TASKS 12
 #define STATUS_LOG_LINES 10

@@ -659,7 +659,10 @@ err:
 }
 
 bool bgft_download_get_task_progress(int task_id, struct bgft_download_task_progress_info* progress_info, int* error) {
-	OrbisBgftTaskProgress tmp_progress_info;
+	union {
+		struct bgft_download_task_progress_info info;
+		uint8_t bytes[256];
+	} raw;
 	int ret;
 
 	if (!s_bgft_initialized) {
@@ -685,8 +688,10 @@ bool bgft_download_get_task_progress(int task_id, struct bgft_download_task_prog
 		goto err;
 	}
 
-	memset(&tmp_progress_info, 0, sizeof(tmp_progress_info));
-	ret = sceBgftServiceDownloadGetProgress((OrbisBgftTaskId)task_id, &tmp_progress_info);
+	/* The toolchain header declares OrbisBgftTaskProgress with 32-bit sizes (48 bytes), but the real service writes
+	   64-bit sizes (64 bytes). Use our own correctly laid out structure inside a larger zeroed buffer. */
+	memset(&raw, 0, sizeof(raw));
+	ret = sceBgftServiceDownloadGetProgress((OrbisBgftTaskId)task_id, (OrbisBgftTaskProgress*)(void*)raw.bytes);
 	if (ret) {
 		if (error) {
 			*error = ret;
@@ -695,21 +700,7 @@ bool bgft_download_get_task_progress(int task_id, struct bgft_download_task_prog
 		goto err;
 	}
 
-	memset(progress_info, 0, sizeof(*progress_info));
-	{
-		progress_info->bits = tmp_progress_info.bits;
-		progress_info->error_result = tmp_progress_info.errorResult;
-		progress_info->length = tmp_progress_info.length;
-		progress_info->transferred = tmp_progress_info.transferred;
-		progress_info->length_total = tmp_progress_info.lengthTotal;
-		progress_info->transferred_total = tmp_progress_info.transferredTotal;
-		progress_info->num_index = tmp_progress_info.numIndex;
-		progress_info->num_total = tmp_progress_info.numTotal;
-		progress_info->rest_sec = tmp_progress_info.restSec;
-		progress_info->rest_sec_total = tmp_progress_info.restSecTotal;
-		progress_info->preparing_percent = tmp_progress_info.preparingPercent;
-		progress_info->local_copy_percent = tmp_progress_info.localCopyPercent;
-	}
+	*progress_info = raw.info;
 
 	return true;
 
