@@ -31,8 +31,9 @@ jobs:
         run: |
           chmod +x "$OO_PS4_TOOLCHAIN"/bin/linux/*
           export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+          export DOTNET_ROLL_FORWARD=Major
           set -o pipefail
-          if ! make 2>&1 | tee build.log; then
+          if ! make PKGTOOL="dotnet $OO_PS4_TOOLCHAIN/bin/windows/PkgTool.Core.dll" 2>&1 | tee build.log; then
             msg=$(grep -m12 -iE 'error|\*\*\*|no such|cannot|not found|undefined' build.log | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A",$0}')
             echo "::error::${msg}"
             exit 1
