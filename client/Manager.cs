@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -419,6 +419,11 @@ namespace Sleepy
             }
         }
 
+        bool SafeExists(string host, int port, string titleId)
+        {
+            try { return _con.Exists(host, port, titleId); } catch { return false; }
+        }
+
         // Not a failure: the console already has this package, so the queue (and anything waiting on it) carries on.
         void MarkAlreadyInstalled(Job j)
         {
@@ -516,7 +521,9 @@ namespace Sleepy
             try { taskId = _con.Install(host, port, _fs.Url(pc, j.PkgId)); }
             catch (ConsoleException ex)
             {
-                if ((uint)ex.Code == 0x80990088 || ex.Message.IndexOf("already installed", StringComparison.OrdinalIgnoreCase) >= 0)
+                // 0x80990015 is what the console returns for a game that is already installed; confirm before trusting it
+                bool dup = (uint)ex.Code == 0x80990015 && j.Kind == Kinds.Base && SafeExists(host, port, j.TitleId);
+                if (dup || (uint)ex.Code == 0x80990088 || ex.Message.IndexOf("already installed", StringComparison.OrdinalIgnoreCase) >= 0)
                     lock (_mu) MarkAlreadyInstalled(j);
                 else FailJob(j, ex.Message);
                 return;

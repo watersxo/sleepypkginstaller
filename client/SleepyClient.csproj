@@ -8,7 +8,7 @@
     <Nullable>disable</Nullable>
     <AssemblyName>SleepyClient</AssemblyName>
     <RootNamespace>Sleepy</RootNamespace>
-    <Version>1.6.0</Version>
+    <Version>1.7.0</Version>
     <Product>Sleepy Package Installer Client</Product>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
