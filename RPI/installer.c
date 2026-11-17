@@ -285,7 +285,8 @@ err:
 }
 
 bool app_inst_util_get_size(const char* title_id, unsigned long* size, int* error) {
-	uint32_t tmp_size = 0;
+	/* The header declares a 32-bit size but the system writes 64 bits; a wider buffer keeps the stack intact. */
+	uint64_t tmp_size[2] = { 0, 0 };
 	int ret;
 
 	if (!s_app_inst_util_initialized) {
@@ -304,7 +305,7 @@ bool app_inst_util_get_size(const char* title_id, unsigned long* size, int* erro
 		goto err;
 	}
 
-	ret = sceAppInstUtilAppGetSize(title_id, &tmp_size);
+	ret = sceAppInstUtilAppGetSize(title_id, (uint32_t*)(void*)tmp_size);
 	if (ret) {
 		if (error) {
 			*error = ret;
@@ -314,7 +315,7 @@ bool app_inst_util_get_size(const char* title_id, unsigned long* size, int* erro
 	}
 
 	if (size) {
-		*size = tmp_size;
+		*size = (unsigned long)tmp_size[0];
 	}
 
 	return true;

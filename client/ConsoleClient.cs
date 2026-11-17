@@ -120,7 +120,7 @@ namespace Sleepy
                 if (!routine || Environment.TickCount - _lastRoutineFail > 10000)
                 {
                     if (routine) _lastRoutineFail = Environment.TickCount;
-                    AppLog.Write("{0} {1} -> no answer after {2} ms (HTTP {3}): {4}: {5}", tag, Clip(sent), sw.ElapsedMilliseconds, code, ex.GetType().Name, ex.Message);
+                    AppLog.Write("{0} {1} -> no answer after {2} ms (HTTP {3}): {4}: {5}{6}", tag, Clip(sent), sw.ElapsedMilliseconds, code, ex.GetType().Name, ex.Message, ex.InnerException != null ? " <- " + ex.InnerException.Message : "");
                 }
                 throw;
             }

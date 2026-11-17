@@ -419,9 +419,11 @@ namespace Sleepy
             }
         }
 
-        bool SafeExists(string host, int port, string titleId)
+        // true/false when the console answered, null when it could not be asked
+        bool? ExistsOrUnknown(string host, int port, string titleId)
         {
-            try { return _con.Exists(host, port, titleId); } catch { return false; }
+            try { return _con.Exists(host, port, titleId); }
+            catch (Exception ex) { AppLog.Error("could not check whether " + titleId + " is installed", ex); return null; }
         }
 
         // Not a failure: the console already has this package, so the queue (and anything waiting on it) carries on.
@@ -522,7 +524,7 @@ namespace Sleepy
             catch (ConsoleException ex)
             {
                 // 0x80990015 is what the console returns for a game that is already installed; confirm before trusting it
-                bool dup = (uint)ex.Code == 0x80990015 && j.Kind == Kinds.Base && SafeExists(host, port, j.TitleId);
+                bool dup = (uint)ex.Code == 0x80990015 && j.Kind == Kinds.Base && ExistsOrUnknown(host, port, j.TitleId) != false;
                 if (dup || (uint)ex.Code == 0x80990088 || ex.Message.IndexOf("already installed", StringComparison.OrdinalIgnoreCase) >= 0)
                     lock (_mu) MarkAlreadyInstalled(j);
                 else FailJob(j, ex.Message);
