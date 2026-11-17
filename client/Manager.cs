@@ -406,7 +406,8 @@ namespace Sleepy
                     j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Complete";
                     break;
                 case "Error":
-                    Fail(j, DescribeError(t.ErrorCode));
+                    if ((uint)t.ErrorCode == 0x80990088) MarkAlreadyInstalled(j);
+                    else Fail(j, DescribeError(t.ErrorCode));
                     break;
                 case "Paused":
                 case "Stopped":
@@ -416,6 +417,14 @@ namespace Sleepy
                     j.State = JobState.Downloading;
                     break;
             }
+        }
+
+        // Not a failure: the console already has this package, so the queue (and anything waiting on it) carries on.
+        void MarkAlreadyInstalled(Job j)
+        {
+            j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Already installed";
+            j.Note = "Already installed on the console, skipped.";
+            AppLog.Write("'{0}' is already installed on the console; treated as done", j.Name);
         }
 
         static string DescribeError(long code)
@@ -505,7 +514,13 @@ namespace Sleepy
             SetPhase(j, "Registering on console");
             int taskId;
             try { taskId = _con.Install(host, port, _fs.Url(pc, j.PkgId)); }
-            catch (ConsoleException ex) { FailJob(j, ex.Message); return; }
+            catch (ConsoleException ex)
+            {
+                if ((uint)ex.Code == 0x80990088 || ex.Message.IndexOf("already installed", StringComparison.OrdinalIgnoreCase) >= 0)
+                    lock (_mu) MarkAlreadyInstalled(j);
+                else FailJob(j, ex.Message);
+                return;
+            }
             catch (Exception ex)
             {
                 // Never resend automatically: if the request itself crashed the console, resending after every restart would crash it again.
