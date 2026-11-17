@@ -1,6 +1,6 @@
 # Package metadata.
 TITLE       := Sleepy Package Installer
-VERSION     := 1.14
+VERSION     := 1.15
 TITLE_ID    := KPBR01111
 CONTENT_ID  := IV0000-KPBR01111_00-AAAAAAAAAAAAAAAA
 

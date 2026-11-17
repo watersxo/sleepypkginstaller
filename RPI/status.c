@@ -335,7 +335,7 @@ static void log_heartbeat(void) {
 	int i;
 
 	status_get_snapshot(&snap);
-	log_write("heartbeat: conns=%d requests=%llu tasks=%d free=%lld MB", sb_active_connections(), (unsigned long long)snap.requests, snap.task_count, (long long)(free_space_bytes("/user") / (1024 * 1024)));
+	log_write("heartbeat: conns=%d requests=%llu tasks=%d free=%lld MB (user) %lld MB (data)", sb_active_connections(), (unsigned long long)snap.requests, snap.task_count, (long long)free_space_mb("/user"), (long long)free_space_mb("/data"));
 	for (i = 0; i < snap.task_count; ++i) {
 		const struct task_info* t = &snap.tasks[i];
 		log_write("  task %d %s %llu/%llu bits=0x%x err=0x%x idle=%d", t->task_id, status_task_state_name(t->state), (unsigned long long)t->transferred, (unsigned long long)t->total, t->bits, (unsigned)t->error_code, t->idle_ticks);

@@ -757,19 +757,48 @@ static bool list_dir_json(const char* dir, char* out, size_t out_size) {
 			break;
 		}
 		while (offset < ret) {
-			struct dirent* entry = (struct dirent*)(buf + offset);
+			const uint8_t* e = (const uint8_t*)(buf + offset);
+			const char* name = NULL;
+			uint16_t reclen = 0;
+			uint16_t reclen9, reclen12;
+			size_t len;
 
-			if (entry->d_fileno == 0 || entry->d_reclen == 0) {
+			/* The kernel's directory entry layout differs from the toolchain's struct, so both known layouts are tried:
+			 * FreeBSD 9: fileno(4) reclen(2) type(1) namlen(1) name@8; FreeBSD 12: fileno(8) off(8) reclen(2) type(1) pad(1) namlen(2) pad(2) name@24. */
+			memcpy(&reclen9, e + 4, sizeof(reclen9));
+			memcpy(&reclen12, e + 16, sizeof(reclen12));
+			if (reclen9 >= 12 && reclen9 <= 512 && (reclen9 & 3) == 0 && offset + reclen9 <= ret && e[7] > 0 && strlen((const char*)e + 8) == e[7]) {
+				name = (const char*)e + 8;
+				reclen = reclen9;
+			} else if (reclen12 >= 28 && reclen12 <= 512 && (reclen12 & 3) == 0 && offset + reclen12 <= ret && e[20] > 0 && strlen((const char*)e + 24) == e[20]) {
+				name = (const char*)e + 24;
+				reclen = reclen12;
+			}
+			if (!name) {
+				log_write("dirent layout not recognised in %s: %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x", dir,
+					e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10], e[11], e[12], e[13], e[14], e[15], e[16], e[17], e[18], e[19]);
 				break;
 			}
-			if (entry->d_name[0] != '.' && strlen(entry->d_name) < 64 && n + 80 < out_size && count < 64) {
-				int w = snprintf(out + n, out_size - n, "%s\"%s\"", count ? ", " : "", entry->d_name);
-				if (w > 0) {
-					n += (size_t)w;
-					count++;
+
+			len = strlen(name);
+			if (name[0] != '.' && len < 64 && n + 80 < out_size && count < 200) {
+				size_t k;
+				bool clean = true;
+
+				for (k = 0; k < len; ++k) {
+					if (!isalnum((unsigned char)name[k]) && name[k] != '_' && name[k] != '-' && name[k] != '.') {
+						clean = false;
+					}
+				}
+				if (clean) {
+					int w = snprintf(out + n, out_size - n, "%s\"%s\"", count ? ", " : "", name);
+					if (w > 0) {
+						n += (size_t)w;
+						count++;
+					}
 				}
 			}
-			offset += entry->d_reclen;
+			offset += reclen;
 		}
 	}
 
@@ -783,7 +812,7 @@ static bool handle_api_installed(sb_Stream* s, const char* method, const char* p
 	const char* value;
 	char title_id[PKG_TITLE_ID_SIZE + 1];
 	char dir[128];
-	char addcont[1536];
+	char addcont[4096];
 	char version[32];
 	bool has_patch;
 	bool has_addcont;

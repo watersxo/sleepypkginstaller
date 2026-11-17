@@ -1,3 +1,9 @@
+## Sleepy Package Installer v1.15
+
+### Fixed in 1.15
+- **Installed add-ons.** Directory listings read the kernel's entry layout directly, so `/api/installed` now lists every installed DLC instead of one, and the PC client can skip them.
+- Free space is logged as unknown (-1) rather than 0 when it cannot be read, and both `/user` and `/data` are reported.
+
 ## Sleepy Package Installer v1.14
 
 ### Fixed in 1.14
