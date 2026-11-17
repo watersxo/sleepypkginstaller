@@ -912,7 +912,7 @@ bool bgft_download_register_package_task(const char* content_id, const char* con
 	int err = 0;
 	int id = -1;
 
-	log_write("BGFT register: id=%s type=%s patch=%d size=%lu url=%s", content_id ? content_id : "(null)", package_type ? package_type : "(null)", is_patch ? 1 : 0, package_size, content_url ? content_url : "(null)");
+	log_write("BGFT register: id=%s type=%s patch=%d size=%lu free=%lld MB url=%s", content_id ? content_id : "(null)", package_type ? package_type : "(null)", is_patch ? 1 : 0, package_size, (long long)(free_space_bytes("/user") / (1024 * 1024)), content_url ? content_url : "(null)");
 	SERVICE_LOCK();
 	ok = bgft_download_register_package_task_impl(content_id, content_url, content_name, icon_path, package_type, package_sub_type, package_size, is_patch, &id, &err);
 	SERVICE_UNLOCK();

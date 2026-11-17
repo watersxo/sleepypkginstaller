@@ -222,6 +222,23 @@ bool is_file_exists(const char* path) {
 	return true;
 }
 
+/* The toolchain's struct statfs does not match the kernel, so the FreeBSD 9+ layout is read by offset. */
+int64_t free_space_bytes(const char* path) {
+	uint8_t buf[2048];
+	uint64_t bsize, bavail;
+
+	memset(buf, 0, sizeof(buf));
+	if (syscall(396, path, buf) != 0) {
+		return -1;
+	}
+	memcpy(&bsize, buf + 16, sizeof(bsize));
+	memcpy(&bavail, buf + 48, sizeof(bavail));
+	if (bsize == 0 || bsize > (1u << 24)) {
+		return -1;
+	}
+	return (int64_t)(bsize * bavail);
+}
+
 void hexdump(const void* data, size_t size) {
 	const uint8_t* p = (const uint8_t*)data;
 	const size_t n = 16;

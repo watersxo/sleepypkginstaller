@@ -41,6 +41,7 @@ namespace Sleepy
     {
         public string ServerState = "";
         public string Message = "";
+        public long FreeBytes = -1;
         public List<ConsoleTask> Tasks = new List<ConsoleTask>();
     }
 
@@ -178,7 +179,7 @@ namespace Sleepy
             catch (ConsoleException) { return null; }
             if (S(m, "status") != "success") return null;
 
-            var st = new ConsoleStatus { ServerState = S(m, "server_state"), Message = S(m, "message") };
+            var st = new ConsoleStatus { ServerState = S(m, "server_state"), Message = S(m, "message"), FreeBytes = m.ContainsKey("free_bytes") ? L(m, "free_bytes") : -1 };
             var arr = m.ContainsKey("tasks") ? m["tasks"] as System.Collections.IEnumerable : null;
             if (arr != null)
                 foreach (var o in arr)

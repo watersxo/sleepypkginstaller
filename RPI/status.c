@@ -2,6 +2,7 @@
 #include "installer.h"
 #include "net.h"
 #include "log.h"
+#include "util.h"
 #include "sandbird.h"
 
 #include <pthread.h>
@@ -334,7 +335,7 @@ static void log_heartbeat(void) {
 	int i;
 
 	status_get_snapshot(&snap);
-	log_write("heartbeat: conns=%d requests=%llu tasks=%d", sb_active_connections(), (unsigned long long)snap.requests, snap.task_count);
+	log_write("heartbeat: conns=%d requests=%llu tasks=%d free=%lld MB", sb_active_connections(), (unsigned long long)snap.requests, snap.task_count, (long long)(free_space_bytes("/user") / (1024 * 1024)));
 	for (i = 0; i < snap.task_count; ++i) {
 		const struct task_info* t = &snap.tasks[i];
 		log_write("  task %d %s %llu/%llu bits=0x%x err=0x%x idle=%d", t->task_id, status_task_state_name(t->state), (unsigned long long)t->transferred, (unsigned long long)t->total, t->bits, (unsigned)t->error_code, t->idle_ticks);
@@ -440,8 +441,8 @@ size_t status_to_json(char* buf, size_t buf_size) {
 	} while (0)
 
 	json_escape(esc, sizeof(esc), snap.server_msg);
-	APPEND("{ \"status\": \"success\", \"ip\": \"%s\", \"port\": %d, \"server_state\": \"%s\", \"message\": \"%s\", \"uptime\": %u, \"requests\": %" PRIu64 ", \"tasks\": [",
-		snap.ip, snap.port, status_server_state_name(snap.server_state), esc, (unsigned)snap.uptime_sec, snap.requests);
+	APPEND("{ \"status\": \"success\", \"ip\": \"%s\", \"port\": %d, \"server_state\": \"%s\", \"message\": \"%s\", \"uptime\": %u, \"requests\": %" PRIu64 ", \"free_bytes\": %" PRId64 ", \"tasks\": [",
+		snap.ip, snap.port, status_server_state_name(snap.server_state), esc, (unsigned)snap.uptime_sec, snap.requests, (int64_t)free_space_bytes("/user"));
 
 	for (i = 0; i < snap.task_count; ++i) {
 		const struct task_info* t = &snap.tasks[i];

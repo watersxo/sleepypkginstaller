@@ -1,3 +1,9 @@
+## Sleepy Package Installer v1.14
+
+### Fixed in 1.14
+- **Installed update version.** `/api/installed` now reads the version from the title's app metadata as well as the patch folder, so the PC client can tell that an update is already installed.
+- **Free space.** The free space of the console's drive is logged at every registration and heartbeat and reported in `/api/status` (`free_bytes`), so downloads that die with 0x80990019 can be matched to a full drive.
+
 ## Sleepy Package Installer v1.13
 
 ### Added in 1.13

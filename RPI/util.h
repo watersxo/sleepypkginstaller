@@ -13,6 +13,9 @@ bool write_file_trunc(const char* path, const void* data, uint64_t size, uint64_
 
 bool is_file_exists(const char* path);
 
+/* Free space in bytes on the volume holding path, or -1 if it cannot be read. */
+int64_t free_space_bytes(const char* path);
+
 void hexdump(const void* data, size_t size);
 
 bool starts_with(const char* haystack, const char* needle);

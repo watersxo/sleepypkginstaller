@@ -799,27 +799,59 @@ static bool handle_api_installed(sb_Stream* s, const char* method, const char* p
 		strlcpy(title_id, value, sizeof(title_id));
 		version[0] = '\0';
 
-		snprintf(dir, sizeof(dir), "/user/patch/%s/sce_sys/param.sfo", title_id);
-		has_patch = is_file_exists(dir);
-		if (!has_patch) {
-			char probe[1024];
-			snprintf(dir, sizeof(dir), "/user/patch/%s", title_id);
-			has_patch = list_dir_json(dir, probe, sizeof(probe));
-		} else {
-			sfo = sfo_alloc();
-			if (sfo) {
+		/* The patch's own param.sfo, or the app metadata the system keeps for the installed title (it carries the patched version). */
+		{
+			static const char* const sfo_paths[] = {
+				"/user/patch/%s/sce_sys/param.sfo",
+				"/user/patch/%s/param.sfo",
+				"/user/appmeta/%s/param.sfo",
+				"/system_data/priv/appmeta/%s/param.sfo",
+			};
+			size_t k;
+
+			for (k = 0; k < ARRAY_SIZE(sfo_paths); ++k) {
+				snprintf(dir, sizeof(dir), sfo_paths[k], title_id);
+				if (!is_file_exists(dir)) {
+					continue;
+				}
+				sfo = sfo_alloc();
+				if (!sfo) {
+					continue;
+				}
 				if (sfo_load_from_file(sfo, dir)) {
 					struct sfo_entry* e = sfo_find_entry(sfo, "APP_VER");
 					if (e && e->format == SFO_FORMAT_STRING && e->size > 0) {
-						strlcpy(version, (const char*)e->value, sizeof(version));
+						log_write("installed? %s APP_VER '%s' in %s", title_id, (const char*)e->value, dir);
+						if (strcmp((const char*)e->value, version) > 0) {
+							strlcpy(version, (const char*)e->value, sizeof(version));
+						}
 					}
+				} else {
+					log_write("installed? %s cannot read %s: %s", title_id, dir, sfo_last_error());
 				}
 				sfo_free(sfo);
 			}
 		}
 
+		{
+			char probe[1024];
+			snprintf(dir, sizeof(dir), "/user/patch/%s", title_id);
+			has_patch = list_dir_json(dir, probe, sizeof(probe));
+			log_write("installed? %s /user/patch contents: [%.300s]", title_id, has_patch ? probe : "missing");
+		}
+
 		snprintf(dir, sizeof(dir), "/user/addcont/%s", title_id);
 		has_addcont = list_dir_json(dir, addcont, sizeof(addcont));
+		{
+			char probe[600];
+			bool ok_root, ok_meta;
+
+			ok_root = list_dir_json("/user/addcont", probe, sizeof(probe));
+			log_write("installed? /user/addcont root: [%.300s]", ok_root ? probe : "missing");
+			snprintf(dir, sizeof(dir), "/user/appmeta/%s", title_id);
+			ok_meta = list_dir_json(dir, probe, sizeof(probe));
+			log_write("installed? %s appmeta: [%.300s]", title_id, ok_meta ? probe : "missing");
+		}
 
 		log_write("installed? %s patch=%d version='%s' addcont=%d [%.300s]", title_id, has_patch ? 1 : 0, version, has_addcont ? 1 : 0, addcont);
 

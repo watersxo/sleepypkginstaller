@@ -50,6 +50,7 @@ namespace Sleepy
         public string Message = "";
         public string Error = "";
         public int Tasks;
+        public long FreeBytes = -1;
     }
 
     /// <summary>Owns the connection to the console and the send queue.</summary>
@@ -305,6 +306,7 @@ namespace Sleepy
                     _fails = 0;
                     _state.Message = st.ServerState;
                     _state.Tasks = st.Tasks.Count;
+                    _state.FreeBytes = st.FreeBytes;
                     var byId = st.Tasks.GroupBy(t => t.TaskId).ToDictionary(g => g.Key, g => g.Last());
                     foreach (var j in active)
                     {
@@ -359,6 +361,7 @@ namespace Sleepy
             ConsoleState s; lock (_mu) { s = _state; }
             sb.AppendLine("Console: " + s.Host + ":" + s.Port + (s.Sleepy ? " (Sleepy Package Installer)" : " (older installer)") + ", state: " + s.Message);
             sb.AppendLine("Console task id: " + j.TaskId);
+            sb.AppendLine("Console free space: " + (s.FreeBytes >= 0 ? (s.FreeBytes / 1048576) + " MB" : "unknown") + "; package size: " + (j.Size / 1048576) + " MB");
             return sb.ToString();
         }
 
@@ -407,7 +410,7 @@ namespace Sleepy
                     break;
                 case "Error":
                     if ((uint)t.ErrorCode == 0x80990088) MarkAlreadyInstalled(j);
-                    else Fail(j, DescribeError(t.ErrorCode));
+                    else Fail(j, DescribeError(t.ErrorCode) + SpaceHint(j));
                     break;
                 case "Paused":
                 case "Stopped":
@@ -432,6 +435,16 @@ namespace Sleepy
             j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Already installed";
             j.Note = "Already installed on the console, skipped.";
             AppLog.Write("'{0}' is already installed on the console; treated as done", j.Name);
+        }
+
+        // Called with the lock held: says how much room the console has when a download ran into trouble.
+        string SpaceHint(Job j)
+        {
+            long free = _state.FreeBytes;
+            if (free < 0) return "";
+            long left = Math.Max(0, j.Total - j.Transferred);
+            string text = " The console has " + (free / 1073741824.0).ToString("0.0") + " GB free";
+            return free < left + (2L << 30) ? text + " and this package needs about " + (left / 1073741824.0).ToString("0.0") + " GB more plus working space: free up space on the console." : text + ".";
         }
 
         static string DescribeError(long code)
