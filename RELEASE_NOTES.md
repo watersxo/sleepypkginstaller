@@ -1,3 +1,8 @@
+## Sleepy Package Installer v1.11
+
+### Fixed in 1.11
+- **Memory corruption when checking an installed game.** The size lookup for an installed title used a 4-byte variable although the system writes 8 bytes, overwriting the stack. This could cause random crashes, especially after the PC client checked many installed games.
+
 ## Sleepy Package Installer v1.10
 
 ### Added in 1.10
