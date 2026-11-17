@@ -109,6 +109,7 @@ const char *sb_error_str(int code);
 sb_Server *sb_new_server(const sb_Options *opt);
 void sb_close_server(sb_Server *srv);
 int sb_poll_server(sb_Server *srv);
+int sb_active_connections(void);
 int sb_send_status(sb_Stream *st, int code, const char *msg);
 int sb_send_header(sb_Stream *st, const char *field, const char *val);
 int sb_send_file(sb_Stream *st, const char *filename);

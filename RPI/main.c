@@ -6,6 +6,7 @@
 #include "KPutil.h"
 #include "status.h"
 #include "screen.h"
+#include "log.h"
 
 #include <signal.h>
 #include <orbis/libkernel.h>
@@ -175,6 +176,11 @@ int main(int argc, const char* const argv[])
 
 	Jailbreak();
 
+	log_open();
+	log_set_anchor("main", (const void*)&main);
+	log_thread_begin();
+	log_write("Sleepy Package Installer v%s", RPI_VERSION);
+
 	status_init();
 
 	if (!load_modules()) {
@@ -239,7 +245,7 @@ int main(int argc, const char* const argv[])
 
 	Notify("Sleepy Package Installer\nIP:     %s\nPort: %i", ip_address, port);
 	server_listen();
-
+	log_write("server loop ended (stop requested)");
 	/* Stop the helper threads first: they use BGFT, the network and the display that are torn down below. */
 	screen_stop();
 	status_fini();
@@ -473,6 +479,7 @@ static void cleanup(void)
 	screen_stop();
 	status_fini();
 	unload_modules();
+	log_close_clean();
 }
 
 void catchReturnFromMain(int exit_code) {}

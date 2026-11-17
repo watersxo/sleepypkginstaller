@@ -8,7 +8,7 @@ namespace Sleepy
     public partial class App : Application
     {
         public const string WindowTitle = "Sleepy Package Installer";
-        public const string ClientVersion = "1.4.0";
+        public const string ClientVersion = "1.5.0";
         Mutex _single;
         FileServer _fs;
         Manager _mgr;
@@ -28,10 +28,13 @@ namespace Sleepy
 
             DispatcherUnhandledException += (s, a) =>
             {
-                try { File.AppendAllText(Path.Combine(ConfigStore.Dir, "client.log"), DateTime.Now + "  " + a.Exception + "\r\n"); } catch { }
-                MessageBox.Show("Something went wrong:\n\n" + a.Exception.Message, WindowTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppLog.Write("UNHANDLED UI EXCEPTION: " + a.Exception);
+                MessageBox.Show("Something went wrong:\n\n" + a.Exception.Message + "\n\nDetails are in " + AppLog.FilePath, WindowTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
                 a.Handled = true;
             };
+            AppDomain.CurrentDomain.UnhandledException += (s, a) => AppLog.Write("UNHANDLED EXCEPTION (terminating=" + a.IsTerminating + "): " + a.ExceptionObject);
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, a) => { AppLog.Write("UNOBSERVED TASK EXCEPTION: " + a.Exception); a.SetObserved(); };
+            AppLog.Write("==== Sleepy Package Installer client " + ClientVersion + " started ====");
 
             var cfg = new ConfigStore();
             var lib = new Library();
@@ -51,6 +54,7 @@ namespace Sleepy
 
         protected override void OnExit(ExitEventArgs e)
         {
+            AppLog.Write("client exiting");
             _mgr?.Stop();
             _fs?.Stop();
             base.OnExit(e);

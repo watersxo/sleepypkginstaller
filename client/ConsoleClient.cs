@@ -77,22 +77,74 @@ namespace Sleepy
 
         Dictionary<string, object> Call(string host, int port, string path, object body, TimeSpan timeout)
         {
-            using (var cts = new CancellationTokenSource(timeout))
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            bool routine = path == "/api/status" || path == "/api/get_task_progress";
+            string sent = body == null ? "" : new JavaScriptSerializer().Serialize(body);
+            string tag = (body == null ? "GET " : "POST ") + host + ":" + port + path;
+            string text = "";
+            int code = 0;
+            try
             {
-                HttpResponseMessage resp;
-                if (body == null) resp = _http.GetAsync(Url(host, port, path), cts.Token).GetAwaiter().GetResult();
-                else
+                using (var cts = new CancellationTokenSource(timeout))
                 {
-                    var content = new StringContent(new JavaScriptSerializer().Serialize(body), Encoding.UTF8, "application/json");
-                    resp = _http.PostAsync(Url(host, port, path), content, cts.Token).GetAwaiter().GetResult();
+                    HttpResponseMessage resp;
+                    if (body == null) resp = _http.GetAsync(Url(host, port, path), cts.Token).GetAwaiter().GetResult();
+                    else
+                    {
+                        var content = new StringContent(sent, Encoding.UTF8, "application/json");
+                        resp = _http.PostAsync(Url(host, port, path), content, cts.Token).GetAwaiter().GetResult();
+                    }
+                    using (resp)
+                    {
+                        code = (int)resp.StatusCode;
+                        text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                        Dictionary<string, object> map;
+                        try { map = ParseLoose(text); } catch { map = null; }
+                        if (map == null)
+                        {
+                            AppLog.Write("{0} -> HTTP {1} unreadable reply after {2} ms: {3}", tag, code, sw.ElapsedMilliseconds, Clip(text));
+                            throw new ConsoleException("unexpected reply from the console (HTTP " + code + ")");
+                        }
+                        object st;
+                        bool ok = map.TryGetValue("status", out st) && (st as string) == "success";
+                        if (!routine || !ok)
+                            AppLog.Write("{0} {1} -> HTTP {2} {3} in {4} ms{5}", tag, Clip(sent), code, ok ? "ok" : "FAILED " + Clip(text), sw.ElapsedMilliseconds, "");
+                        return map;
+                    }
                 }
+            }
+            catch (ConsoleException) { throw; }
+            catch (Exception ex)
+            {
+                // a console that is switched off would otherwise fill the log with one line per poll
+                if (!routine || Environment.TickCount - _lastRoutineFail > 10000)
+                {
+                    if (routine) _lastRoutineFail = Environment.TickCount;
+                    AppLog.Write("{0} {1} -> no answer after {2} ms (HTTP {3}): {4}: {5}", tag, Clip(sent), sw.ElapsedMilliseconds, code, ex.GetType().Name, ex.Message);
+                }
+                throw;
+            }
+        }
+
+        int _lastRoutineFail = Environment.TickCount - 20000;
+
+        static string Clip(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            s = s.Replace("\r", " ").Replace("\n", " ");
+            return s.Length <= 300 ? s : s.Substring(0, 300) + "...";
+        }
+
+        /// <summary>Downloads the console app's own log file (the end of it, including the previous run).</summary>
+        public string ConsoleLog(string host, int port)
+        {
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8)))
+            {
+                var resp = _http.GetAsync(Url(host, port, "/api/log"), cts.Token).GetAwaiter().GetResult();
                 using (resp)
                 {
-                    string text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                    Dictionary<string, object> map;
-                    try { map = ParseLoose(text); } catch { map = null; }
-                    if (map == null) throw new ConsoleException("unexpected reply from the console (HTTP " + (int)resp.StatusCode + ")");
-                    return map;
+                    if (!resp.IsSuccessStatusCode) throw new ConsoleException("this installer version has no log (HTTP " + (int)resp.StatusCode + "); update it to v1.10 or newer");
+                    return resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 }
             }
         }

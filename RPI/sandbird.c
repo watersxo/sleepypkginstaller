@@ -28,6 +28,7 @@
 #include "sandbird.h"
 #include "KPutil.h"
 #include "util.h"
+#include "log.h"
 #include <orbis/Net.h>
 #include <orbis/libkernel.h>
 #include <sys/time.h>
@@ -963,10 +964,16 @@ void sb_close_server(sb_Server *srv) {
 }
 
 
+int sb_active_connections(void) {
+  return s_active_connections;
+}
+
+
 static void* conn_thread(void* arg) {
   struct sb_Stream *st = (struct sb_Stream *)arg;
   sb_Event e;
   int err;
+  void* altstack = log_thread_begin();
 
   /* Do `connect` event */
   memset(&e, 0, sizeof(e));
@@ -990,6 +997,7 @@ fail:
   /* Destroy stream */
   sb_stream_destroy(st);
 
+  log_thread_end(altstack);
   __atomic_fetch_sub(&s_active_connections, 1, __ATOMIC_SEQ_CST);
 
   return NULL;

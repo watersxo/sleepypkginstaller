@@ -23,6 +23,7 @@ namespace Sleepy
         public int Port { get; private set; }
         public long Bytes { get { return Interlocked.Read(ref _bytes); } }
         public int Active { get { return Volatile.Read(ref _active); } }
+        long _requests;
 
         public FileServer(Library lib) { _lib = lib; }
 
@@ -88,7 +89,10 @@ namespace Sleepy
                         if (!await Respond(ns, head, buf).ConfigureAwait(false)) return;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    if (!_closed) AppLog.Write("file server: connection ended with {0}: {1}", ex.GetType().Name, ex.Message);
+                }
             }
         }
 
@@ -178,6 +182,8 @@ namespace Sleepy
                 }
 
                 long length = end - start + 1;
+                if (Interlocked.Increment(ref _requests) % 50 == 1)
+                    AppLog.Write("file server: {0} {1} bytes {2}-{3} of {4} (request #{5})", method, pkg.Title, start, end, total, Volatile.Read(ref _requests));
                 var sb = new StringBuilder();
                 sb.Append(partial ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n");
                 sb.Append("Content-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\n");

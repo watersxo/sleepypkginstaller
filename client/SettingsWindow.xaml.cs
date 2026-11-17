@@ -1,4 +1,5 @@
 using System.Net;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace Sleepy
@@ -6,10 +7,12 @@ namespace Sleepy
     public partial class SettingsWindow : Window
     {
         readonly ConfigStore _cfg;
+        readonly Manager _mgr;
 
-        public SettingsWindow(ConfigStore cfg)
+        public SettingsWindow(ConfigStore cfg, Manager mgr)
         {
             _cfg = cfg;
+            _mgr = mgr;
             InitializeComponent();
             Native.UseDarkTitleBar(this);
             var c = cfg.Get();
@@ -32,5 +35,22 @@ namespace Sleepy
         }
 
         void Cancel_Click(object sender, RoutedEventArgs e) { Close(); }
+
+        void OpenLogs_Click(object sender, RoutedEventArgs e)
+        {
+            try { System.Diagnostics.Process.Start("explorer.exe", "\"" + AppLog.Dir + "\""); }
+            catch { Message.Text = "Logs are in " + AppLog.Dir; }
+        }
+
+        void ConsoleLog_Click(object sender, RoutedEventArgs e)
+        {
+            Message.Text = "Fetching the console log...";
+            Task.Run(() => _mgr.SaveConsoleLog("requested in settings")).ContinueWith(t => Dispatcher.BeginInvoke(new System.Action(() =>
+            {
+                if (t.Result == null) { Message.Text = "Could not get the console log. Is the console connected, and is the installer v1.10 or newer?"; return; }
+                try { Clipboard.SetText(t.Result); Message.Text = "Console log copied to the clipboard and saved as console.log in the logs folder."; }
+                catch { Message.Text = "Console log saved as console.log in the logs folder."; }
+            })));
+        }
     }
 }

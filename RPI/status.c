@@ -1,6 +1,8 @@
 #include "status.h"
 #include "installer.h"
 #include "net.h"
+#include "log.h"
+#include "sandbird.h"
 
 #include <pthread.h>
 #include <time.h>
@@ -10,6 +12,7 @@
 #define IP_REFRESH_TICKS 5
 #define STALL_TICKS 5
 #define MAX_FAIL_TICKS 3
+#define HEARTBEAT_TICKS 30
 
 static pthread_mutex_t s_mtx = PTHREAD_MUTEX_INITIALIZER;
 static struct status_snapshot s_state;
@@ -20,6 +23,8 @@ static bool s_monitor_started = false;
 
 static void log_line_locked(const char* msg) {
 	uint32_t up = (uint32_t)(time(NULL) - s_start_time);
+
+	log_write("%s", msg);
 
 	if (s_state.log_count == STATUS_LOG_LINES) {
 		memmove(s_state.log[0], s_state.log[1], sizeof(s_state.log[0]) * (STATUS_LOG_LINES - 1));
@@ -324,9 +329,22 @@ static void refresh_ip(void) {
 	pthread_mutex_unlock(&s_mtx);
 }
 
+static void log_heartbeat(void) {
+	struct status_snapshot snap;
+	int i;
+
+	status_get_snapshot(&snap);
+	log_write("heartbeat: conns=%d requests=%llu tasks=%d", sb_active_connections(), (unsigned long long)snap.requests, snap.task_count);
+	for (i = 0; i < snap.task_count; ++i) {
+		const struct task_info* t = &snap.tasks[i];
+		log_write("  task %d %s %llu/%llu bits=0x%x err=0x%x idle=%d", t->task_id, status_task_state_name(t->state), (unsigned long long)t->transferred, (unsigned long long)t->total, t->bits, (unsigned)t->error_code, t->idle_ticks);
+	}
+}
+
 static void* monitor_thread(void* arg) {
 	int tick = 0;
 	int slept;
+	void* altstack = log_thread_begin();
 
 	(void)arg;
 
@@ -343,8 +361,12 @@ static void* monitor_thread(void* arg) {
 		if (++tick % IP_REFRESH_TICKS == 0) {
 			refresh_ip();
 		}
+		if (tick % HEARTBEAT_TICKS == 0) {
+			log_heartbeat();
+		}
 	}
 
+	log_thread_end(altstack);
 	return NULL;
 }
 

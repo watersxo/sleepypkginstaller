@@ -368,7 +368,7 @@ namespace Sleepy
             UpdateEmpty();
         }
 
-        void Settings_Click(object sender, RoutedEventArgs e) { new SettingsWindow(_cfg) { Owner = this }.ShowDialog(); }
+        void Settings_Click(object sender, RoutedEventArgs e) { new SettingsWindow(_cfg, _mgr) { Owner = this }.ShowDialog(); }
 
         void Window_Drop(object sender, DragEventArgs e)
         {

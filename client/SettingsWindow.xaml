@@ -21,6 +21,14 @@
     <TextBlock Text="Leave empty for automatic. Only set this if the console cannot reach your PC (for example with several network adapters or a VPN)."
                TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Dim}" Margin="0,6,0,0"/>
 
+    <TextBlock Text="Logs" Margin="0,18,0,6"/>
+    <StackPanel Orientation="Horizontal">
+      <Button Content="Open logs folder" Style="{StaticResource GhostButton}" Click="OpenLogs_Click"/>
+      <Button Content="Copy console log" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="ConsoleLog_Click"/>
+    </StackPanel>
+    <TextBlock Text="client.log records everything this app does. The console log shows what the installer on the PS4 was doing, even if it crashed."
+               TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Dim}" Margin="0,6,0,0"/>
+
     <TextBlock x:Name="Message" Foreground="{StaticResource Err}" Margin="0,10,0,0" TextWrapping="Wrap"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
       <Button Content="Cancel" Style="{StaticResource GhostButton}" IsCancel="True" Click="Cancel_Click"/>

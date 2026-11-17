@@ -1,3 +1,13 @@
+## Sleepy Package Installer v1.10
+
+### Added in 1.10
+- **Log file for crashes.** The installer now writes `/data/sleepy-installer.log` (older part in `.old`). Every request, BGFT call, task change and a heartbeat every 30 s is written as it happens, so the last lines show what the app was doing even if it crashed. A crash also records the signal, fault address and call stack, and the next start notes that the previous run did not exit cleanly. The PC client can fetch it (Settings > Copy console log), or open `http://<ip>:<port>/api/log`.
+- Invalid-request errors now record the exact body that was received.
+
+### Changed in 1.10
+- The BGFT download service gets an 8 MB heap (was 1 MB) so many queued or leftover tasks cannot exhaust it.
+- All calls into the BGFT and AppInstUtil system services run one at a time instead of from several threads at once.
+
 ## Sleepy Package Installer v1.09
 
 ### Fixed in 1.09

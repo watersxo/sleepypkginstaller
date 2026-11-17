@@ -142,6 +142,8 @@ namespace Sleepy
             }
 
             _cfg.Update(c => { c.ConsoleHost = host; c.ConsolePort = port; });
+            AppLog.Write("connected to {0}:{1} ({2}, state {3})", host, port, sleepy ? "Sleepy Package Installer" : "older installer", st?.ServerState);
+            Task.Run(() => SaveConsoleLog("connected"));
             lock (_mu)
             {
                 _connGen++;
@@ -204,12 +206,21 @@ namespace Sleepy
                 if (!connected)
                 {
                     bool lost; lock (_mu) lost = _connGen > 0 && _state.Error.Length > 0;
-                    if (lost && _cfg.Get().AutoConnect)
+                    // while the console is away, knock gently: it may be restarting
+                    if (lost && _cfg.Get().AutoConnect && unchecked(Environment.TickCount - _nextReconnect) >= 0)
                     {
+                        _nextReconnect = unchecked(Environment.TickCount + 4000);
                         try
                         {
                             var st = _con.Status(host, port);
-                            if (st != null) lock (_mu) { _state.Connected = true; _state.Sleepy = true; _state.Error = ""; _fails = 0; _state.Message = st.ServerState; }
+                            if (st != null)
+                            {
+                                lock (_mu) { _state.Connected = true; _state.Sleepy = true; _state.Error = ""; _fails = 0; _state.Message = st.ServerState; }
+                                // give a console that has just started a moment to finish starting before sending it work
+                                _holdUntil = unchecked(Environment.TickCount + 6000);
+                                AppLog.Write("console is back ({0}); holding new transfers for 6 s", st.ServerState);
+                                Task.Run(() => SaveConsoleLog("console came back"));
+                            }
                         }
                         catch { }
                     }
@@ -225,10 +236,50 @@ namespace Sleepy
 
         void MarkFailure()
         {
+            bool lostNow = false;
             lock (_mu)
             {
-                if (++_fails >= 3) { _state.Connected = false; _state.Error = "The connection to the console was lost."; }
+                if (++_fails >= 3 && _state.Connected) { _state.Connected = false; _state.Error = "The connection to the console was lost."; lostNow = true; }
             }
+            if (lostNow) AppLog.Write("connection to the console lost ({0}:{1}); active jobs: {2}", _state.Host, _state.Port, ActiveSummary());
+        }
+
+        string ActiveSummary()
+        {
+            lock (_mu)
+                return string.Join("; ", _jobs.Where(j => j.State == JobState.Sending || j.State == JobState.Downloading || j.State == JobState.Paused)
+                    .Select(j => j.Name + " [" + j.State + " " + j.Percent + "% task " + j.TaskId + "]").ToArray());
+        }
+
+        int _nextReconnect = unchecked(Environment.TickCount - 10000), _holdUntil = unchecked(Environment.TickCount - 10000);
+
+        /// <summary>Fetches the console log once the console is reachable again (it may be restarting).</summary>
+        void SaveConsoleLogSoon(string reason)
+        {
+            Task.Run(() =>
+            {
+                for (int i = 0; i < 20; i++)
+                {
+                    Thread.Sleep(3000);
+                    if (SaveConsoleLog(reason) != null) return;
+                }
+            });
+        }
+
+        /// <summary>Fetches the console's own log and keeps it next to the client log.</summary>
+        public string SaveConsoleLog(string reason)
+        {
+            string host; int port;
+            if (!Target(out host, out port)) { lock (_mu) { host = _state.Host; port = _state.Port; } }
+            if (string.IsNullOrEmpty(host)) return null;
+            try
+            {
+                var text = _con.ConsoleLog(host, port);
+                AppLog.SaveConsoleLog(text, reason);
+                AppLog.Write("saved the console log ({0} bytes, {1})", text.Length, reason);
+                return text;
+            }
+            catch (Exception ex) { AppLog.Error("could not fetch the console log", ex); return null; }
         }
 
         // Refreshes the progress of every job that is on the console.
@@ -287,6 +338,7 @@ namespace Sleepy
         {
             j.State = JobState.Error; j.Error = msg; j.Speed = 0; j.Finished = Now();
             j.Detail = BuildDetail(j, msg);
+            AppLog.Write("JOB FAILED '{0}': {1}\r\n{2}", j.Name, msg, j.Detail);
         }
 
         string BuildDetail(Job j, string msg)
@@ -317,6 +369,15 @@ namespace Sleepy
         }
 
         void Apply(Job j, ConsoleTask t)
+        {
+            string state = j.State, phase = j.Phase;
+            int bucket = j.Percent / 10;
+            ApplyCore(j, t);
+            if (j.State != state || j.Phase != phase || j.Percent / 10 != bucket)
+                AppLog.Write("job '{0}' task {1}: console {2} {3}/{4} bytes {5}% {6}/s -> {7} / {8}", j.Name, j.TaskId, t.State, t.Transferred, t.Total, j.Percent, t.Speed, j.State, j.Phase);
+        }
+
+        void ApplyCore(Job j, ConsoleTask t)
         {
             if (t.Total > 0) j.Total = t.Total; else if (j.Total == 0) j.Total = j.Size;
             j.Transferred = t.Transferred; j.Speed = t.Speed; j.Eta = t.RestSec; j.Phase = t.State;
@@ -373,6 +434,7 @@ namespace Sleepy
         // Starts queued jobs while there is capacity.
         void Schedule()
         {
+            if (unchecked(Environment.TickCount - _holdUntil) < 0) return;
             int limit = _cfg.Get().Concurrency;
             var start = new List<Job>();
             lock (_mu)
@@ -389,6 +451,7 @@ namespace Sleepy
                         if (dep != null && dep.State != JobState.Done) continue; // wait for the game
                     }
                     j.State = JobState.Sending; j.Phase = "Contacting console"; j.Error = ""; j.Started = Now();
+                    AppLog.Write("starting '{0}' ({1} {2}, {3} bytes)", j.Name, j.Kind, j.Version, j.Size);
                     start.Add(j);
                     active++;
                 }
@@ -443,10 +506,13 @@ namespace Sleepy
             int taskId;
             try { taskId = _con.Install(host, port, _fs.Url(pc, j.PkgId)); }
             catch (ConsoleException ex) { FailJob(j, ex.Message); return; }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Never resend automatically: if the request itself crashed the console, resending after every restart would crash it again.
                 MarkFailure();
-                lock (_mu) { j.State = JobState.Queued; j.Phase = ""; } // retry once the console is back
+                AppLog.Error("install request for '" + j.Name + "' got no answer", ex);
+                FailJob(j, "The console stopped answering while this package was being registered, so it may have crashed. It will not be retried automatically: check the console, then press Retry. (" + ex.Message + ")");
+                SaveConsoleLogSoon("install request got no answer");
                 return;
             }
 
@@ -455,6 +521,7 @@ namespace Sleepy
             if (canceled) { try { _con.TaskOp(host, port, "unregister_task", taskId); } catch { } return; }
 
             SetPhase(j, "Starting download");
+            AppLog.Write("'{0}' registered as console task {1}", j.Name, taskId);
             try { _con.TaskOp(host, port, "start_task", taskId); }
             catch (Exception ex) { FailJob(j, "Could not start the download: " + ex.Message); return; }
 

@@ -15,6 +15,7 @@
 #include "sandbird.h"
 #include "tiny-json.h"
 #include "status.h"
+#include "log.h"
 
 #define CLEANUP_DAY_COUNT 3
 #define MAX_JSON_TOKENS 65536
@@ -59,6 +60,7 @@ static bool handle_api_pause_task(sb_Stream* s, const char* method, const char* 
 static bool handle_api_resume_task(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_unregister_task(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_get_task_progress(sb_Stream* s, const char* method, const char* path, char* in_data);
+static bool handle_api_log(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_find_task(sb_Stream* s, const char* method, const char* path, char* in_data);
 
 static bool handle_static(sb_Stream* s, const char* method, const char* path, char* in_data);
@@ -76,6 +78,7 @@ static char* encodeURI(const char *src);
 static const struct handler_desc s_handlers[] = {
 	{ "/", &handle_root, false, true, false },
 	{ "/api/status", &handle_api_status, false, false, false },
+	{ "/api/log", &handle_api_log, false, false, false },
 	{ "/static/", &handle_static, true, true, false },
 	{ "/api/install", &handle_api_install, false, false, true },
 	{ "/api/uninstall_game", &handle_api_uninstall_game, false, false, true },
@@ -181,7 +184,10 @@ static int event_handler(sb_Event* e) {
 	const char* path = e->path;
 	const char* method = e->method;
 	char* data = NULL;
+	char empty_body[1] = { 0 };
 	bool is_get;
+	bool quiet;
+	uint64_t started;
 	size_t i;
 
 	if (e->type != SB_EV_REQUEST) {
@@ -217,17 +223,30 @@ static int event_handler(sb_Event* e) {
 		status_note_request(e->address);
 	}
 
+	quiet = (strcmp(path, "/api/status") == 0 || strcmp(path, "/api/get_task_progress") == 0 || strcmp(path, "/api/log") == 0);
+	started = sceKernelGetProcessTime();
+
 	if (is_get) {
 		data = get_query_data(st, "data");
 		if (!data) {
 			kick_error(st, 500, "Internal server error", "No memory.");
 			return SB_RES_OK;
 		}
+		if (!quiet) {
+			log_write("REQ %s %s from %s conns=%d data=%.160s", method, path, e->address, sb_active_connections(), data);
+		}
 		(*desc->handler)(st, method, path, data);
 		free(data);
 	} else {
-		data = st->recv_buf.s + st->data_idx;
+		/* A POST without a body (no Content-Length) must not be mistaken for JSON made of the HTTP header. */
+		data = st->data_idx ? st->recv_buf.s + st->data_idx : empty_body;
+		if (!quiet) {
+			log_write("REQ %s %s from %s conns=%d body(%zu)=%.200s", method, path, e->address, sb_active_connections(), strlen(data), data);
+		}
 		(*desc->handler)(st, method, path, data);
+	}
+	if (!quiet) {
+		log_write("DONE %s %s in %u ms", method, path, (unsigned)((sceKernelGetProcessTime() - started) / 1000));
 	}
 
 	return SB_RES_OK;
@@ -248,7 +267,12 @@ static void fail_request(sb_Stream* s, const char* message) {
 
 static bool request_open(struct request* r, sb_Stream* s, char* in_data) {
 	size_t tokens = 4;
+	size_t body_len = strlen(in_data);
+	char head[200];
 	const char* p;
+
+	/* json_create edits the text in place, so keep a copy for the log. */
+	strlcpy(head, in_data, sizeof(head));
 
 	r->s = s;
 	r->pool = NULL;
@@ -272,6 +296,7 @@ static bool request_open(struct request* r, sb_Stream* s, char* in_data) {
 
 	r->root = json_create(in_data, r->pool, (unsigned int)tokens);
 	if (!r->root) {
+		log_write("Invalid JSON: %zu bytes, %zu tokens, text=%s", body_len, tokens, head);
 		fail_request(s, "Invalid JSON format.");
 		free(r->pool);
 		r->pool = NULL;
@@ -868,6 +893,26 @@ static bool handle_api_status(sb_Stream* s, const char* method, const char* path
 
 	len = status_to_json(buf, STATUS_JSON_SIZE);
 	kick_result_header_json(s);
+	sb_write(s, buf, len);
+
+	free(buf);
+	return true;
+}
+
+static bool handle_api_log(sb_Stream* s, const char* method, const char* path, char* in_data) {
+	const size_t cap = 96 * 1024;
+	char* buf = (char*)malloc(cap);
+	size_t len;
+
+	if (!buf) {
+		kick_error(s, 500, "Internal server error", "No memory.");
+		return false;
+	}
+
+	len = log_read_tail(buf, cap);
+	sb_send_status(s, 200, "OK");
+	sb_send_header(s, "Content-Type", "text/plain; charset=utf-8");
+	sb_send_header(s, "Connection", "close");
 	sb_write(s, buf, len);
 
 	free(buf);
