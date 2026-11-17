@@ -20,39 +20,50 @@ struct anchor {
 };
 
 static pthread_mutex_t s_mtx = PTHREAD_MUTEX_INITIALIZER;
-static int s_fd = -1;
+static bool s_enabled = false;
 static size_t s_size = 0;
+static int s_write_errors = 0;
 static struct anchor s_anchors[MAX_ANCHORS];
 static int s_anchor_count = 0;
 
-static void raw_line(const char* text, size_t len) {
-	int fd = s_fd;
+/* The file is opened for every record instead of keeping a descriptor: a descriptor that is closed by mistake
+ * elsewhere in the app (and then reused for a socket) would silently stop the log, or write into the wrong place. */
+static ssize_t append_raw(const char* text, size_t len) {
+	int fd;
+	ssize_t w;
 
-	if (fd >= 0 && len > 0) {
-		(void)write(fd, text, len);
+	fd = open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0666);
+	if (fd < 0) {
+		return -1;
+	}
+	w = write(fd, text, len);
+	close(fd);
+	return w;
+}
+
+static void raw_line(const char* text, size_t len) {
+	if (len > 0) {
+		(void)append_raw(text, len);
 	}
 }
 
-static void open_file_locked(void) {
+static void measure_file_locked(void) {
+	int fd = open(LOG_PATH, O_RDONLY);
 	off_t end;
 
-	s_fd = open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0666);
-	if (s_fd < 0) {
-		s_size = 0;
+	s_size = 0;
+	if (fd < 0) {
 		return;
 	}
-	end = lseek(s_fd, 0, SEEK_END);
+	end = lseek(fd, 0, SEEK_END);
 	s_size = end > 0 ? (size_t)end : 0;
+	close(fd);
 }
 
 static void rotate_locked(void) {
-	if (s_fd >= 0) {
-		close(s_fd);
-		s_fd = -1;
-	}
 	unlink(LOG_OLD_PATH);
 	rename(LOG_PATH, LOG_OLD_PATH);
-	open_file_locked();
+	s_size = 0;
 }
 
 void log_write(const char* fmt, ...) {
@@ -86,9 +97,19 @@ void log_write(const char* fmt, ...) {
 	line[n++] = '\n';
 
 	pthread_mutex_lock(&s_mtx);
-	if (s_fd >= 0) {
-		if (write(s_fd, line, (size_t)n) > 0) {
+	if (s_enabled) {
+		if (append_raw(line, (size_t)n) > 0) {
 			s_size += (size_t)n;
+			if (s_write_errors > 0) {
+				char note[80];
+				int m = snprintf(note, sizeof(note), "[log] %d earlier line(s) could not be written\n", s_write_errors);
+				s_write_errors = 0;
+				if (m > 0 && append_raw(note, (size_t)m) > 0) {
+					s_size += (size_t)m;
+				}
+			}
+		} else {
+			s_write_errors++;
 		}
 		if (s_size > LOG_MAX_SIZE) {
 			rotate_locked();
@@ -169,10 +190,6 @@ static void crash_handler(int sig, siginfo_t* si, void* ctx) {
 			bp = next;
 		}
 	}
-
-	if (s_fd >= 0) {
-		fsync(s_fd);
-	}
 }
 
 static void install_crash_handlers(void) {
@@ -232,7 +249,8 @@ void log_open(void) {
 	crashed = (access(RUN_MARKER, F_OK) == 0);
 
 	pthread_mutex_lock(&s_mtx);
-	open_file_locked();
+	s_enabled = true;
+	measure_file_locked();
 	if (s_size > LOG_MAX_SIZE) {
 		rotate_locked();
 	}

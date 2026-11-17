@@ -1,3 +1,8 @@
+## Sleepy Package Installer v1.12
+
+### Fixed in 1.12
+- **The log stopped part-way through a session.** The log file is now opened for every line instead of holding a file descriptor open, so it cannot be cut off if a descriptor is closed or reused elsewhere. Logs are at `/data/sleepy-installer.log` (and `.log.old`).
+
 ## Sleepy Package Installer v1.11
 
 ### Fixed in 1.11
