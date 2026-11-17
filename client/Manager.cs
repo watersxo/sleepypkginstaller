@@ -34,6 +34,7 @@ namespace Sleepy
         internal int Missing;
         internal DateTime StallSince = DateTime.MinValue;
         internal DateTime NearEndSince = DateTime.MinValue;
+        internal DateTime NextInstalledCheck = DateTime.MinValue;
         internal long LastBytes = -1;
         internal bool WaitingForGame;
 
@@ -320,6 +321,7 @@ namespace Sleepy
                         }
                     }
                 }
+                CheckFinishedByInstall(active, host, port);
                 return;
             }
 
@@ -330,6 +332,56 @@ namespace Sleepy
                 catch (ConsoleException) { continue; }
                 catch { MarkFailure(); return; }
                 lock (_mu) { _fails = 0; Apply(j, t); }
+            }
+        }
+
+        // Asks the console whether an update or add-on is already installed; returns the reason, or null if it is not (or cannot be told).
+        string InstalledReason(Job j, PkgInfo pkg, string host, int port, bool log)
+        {
+            string why = null;
+            try
+            {
+                var have = _con.Installed(host, port, j.TitleId);
+                if (have == null) return null;
+                if (j.Kind == Kinds.Dlc)
+                {
+                    string cid = pkg.ContentId ?? "";
+                    string label = cid.Length >= 16 ? cid.Substring(cid.Length - 16) : cid;
+                    if (label.Length > 0 && have.Addcont.Contains(label)) why = "This add-on is installed on the console.";
+                }
+                else if (have.PatchVersion.Length > 0 && PkgReader.CompareVersions(have.PatchVersion, pkg.Version) >= 0)
+                    why = "Update " + have.PatchVersion + " is installed on the console.";
+                if (log)
+                    AppLog.Write("installed check for '{0}' ({1}): patch={2} '{3}', addcont={4} -> {5}", j.Name, j.Kind, have.HasPatch, have.PatchVersion, string.Join(",", have.Addcont.ToArray()), why ?? "send");
+            }
+            catch (Exception ex) { AppLog.Error("installed check for '" + j.Name + "' failed", ex); }
+            return why;
+        }
+
+        // Updates and add-ons finish installing on the console before the download counter reaches 100%,
+        // so the console's own installed list decides when they are done.
+        void CheckFinishedByInstall(List<Job> active, string host, int port)
+        {
+            foreach (var j in active)
+            {
+                if (j.Kind != Kinds.Update && j.Kind != Kinds.Dlc) continue;
+                DateTime now = DateTime.UtcNow;
+                lock (_mu)
+                {
+                    if (j.State != JobState.Downloading || now < j.NextInstalledCheck) continue;
+                    j.NextInstalledCheck = now.AddSeconds(3);
+                }
+                var pkg = _lib.Pkg(j.PkgId);
+                if (pkg == null) continue;
+                string why = InstalledReason(j, pkg, host, port, false);
+                if (why == null) continue;
+                lock (_mu)
+                {
+                    if (j.State != JobState.Downloading) continue;
+                    j.State = JobState.Done; j.Percent = 100; j.Speed = 0; j.Eta = 0; j.Finished = Now(); j.Phase = "Installed";
+                    j.Note = why;
+                    AppLog.Write("'{0}' finished: {1}", j.Name, why);
+                }
             }
         }
 
@@ -534,24 +586,7 @@ namespace Sleepy
             // updates and add-ons the console already has are not sent again
             if (j.Kind == Kinds.Update || j.Kind == Kinds.Dlc)
             {
-                string why = null;
-                try
-                {
-                    var have = _con.Installed(host, port, j.TitleId);
-                    if (have != null)
-                    {
-                        if (j.Kind == Kinds.Dlc)
-                        {
-                            string cid = pkg.ContentId ?? "";
-                            string label = cid.Length >= 16 ? cid.Substring(cid.Length - 16) : cid;
-                            if (label.Length > 0 && have.Addcont.Contains(label)) why = "This add-on is already installed on the console.";
-                        }
-                        else if (have.PatchVersion.Length > 0 && PkgReader.CompareVersions(have.PatchVersion, pkg.Version) >= 0)
-                            why = "Update " + have.PatchVersion + " is already installed on the console.";
-                        AppLog.Write("installed check for '{0}' ({1}): patch={2} '{3}', addcont={4} -> {5}", j.Name, j.Kind, have.HasPatch, have.PatchVersion, string.Join(",", have.Addcont.ToArray()), why ?? "send");
-                    }
-                }
-                catch (Exception ex) { AppLog.Error("installed check for '" + j.Name + "' failed, sending anyway", ex); }
+                string why = InstalledReason(j, pkg, host, port, true);
                 if (why != null)
                 {
                     lock (_mu) if (j.State == JobState.Sending) { MarkAlreadyInstalled(j); j.Note = why + " Skipped."; }
