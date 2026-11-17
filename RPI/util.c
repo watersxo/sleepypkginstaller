@@ -4,6 +4,7 @@
 #include <ctype.h>
 
 #include <fcntl.h>
+#include <sys/statfs.h>
 bool get_language_id(int* lang_id) {
 	int value;
 	int ret;
