@@ -518,6 +518,34 @@ namespace Sleepy
             if (string.IsNullOrEmpty(pc)) pc = ConsoleClient.OutboundIp(host, port);
             if (string.IsNullOrEmpty(pc)) { FailJob(j, "Cannot determine this PC's address on the console's network. Set it in Settings."); return; }
 
+            // updates and add-ons the console already has are not sent again
+            if (j.Kind == Kinds.Update || j.Kind == Kinds.Dlc)
+            {
+                string why = null;
+                try
+                {
+                    var have = _con.Installed(host, port, j.TitleId);
+                    if (have != null)
+                    {
+                        if (j.Kind == Kinds.Dlc)
+                        {
+                            string cid = pkg.ContentId ?? "";
+                            string label = cid.Length >= 16 ? cid.Substring(cid.Length - 16) : cid;
+                            if (label.Length > 0 && have.Addcont.Contains(label)) why = "This add-on is already installed on the console.";
+                        }
+                        else if (have.PatchVersion.Length > 0 && PkgReader.CompareVersions(have.PatchVersion, pkg.Version) >= 0)
+                            why = "Update " + have.PatchVersion + " is already installed on the console.";
+                        AppLog.Write("installed check for '{0}' ({1}): patch={2} '{3}', addcont={4} -> {5}", j.Name, j.Kind, have.HasPatch, have.PatchVersion, string.Join(",", have.Addcont.ToArray()), why ?? "send");
+                    }
+                }
+                catch (Exception ex) { AppLog.Error("installed check for '" + j.Name + "' failed, sending anyway", ex); }
+                if (why != null)
+                {
+                    lock (_mu) if (j.State == JobState.Sending) { MarkAlreadyInstalled(j); j.Note = why + " Skipped."; }
+                    return;
+                }
+            }
+
             SetPhase(j, "Registering on console");
             int taskId;
             try { taskId = _con.Install(host, port, _fs.Url(pc, j.PkgId)); }

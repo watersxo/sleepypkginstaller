@@ -30,6 +30,13 @@ namespace Sleepy
         public long ErrorCode;
     }
 
+    public class InstalledInfo
+    {
+        public bool HasPatch;
+        public string PatchVersion = "";
+        public HashSet<string> Addcont = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
     public class ConsoleStatus
     {
         public string ServerState = "";
@@ -212,6 +219,21 @@ namespace Sleepy
             if (t.Total > 0) t.Percent = (int)(t.Transferred * 100 / t.Total);
             t.State = t.ErrorCode != 0 ? "Error" : (t.Total > 0 && t.Transferred >= t.Total) ? "Complete" : t.Transferred > 0 ? "Downloading" : "Queued";
             return t;
+        }
+
+        /// <summary>What the console already has for a title: its patch version and installed add-on content. Null if the installer is too old.</summary>
+        public InstalledInfo Installed(string host, int port, string titleId)
+        {
+            Dictionary<string, object> m;
+            try { m = Call(host, port, "/api/installed", new Dictionary<string, object> { { "title_id", titleId } }, TimeSpan.FromSeconds(10)); }
+            catch (ConsoleException) { return null; }
+            if (S(m, "status") != "success") return null;
+            var info = new InstalledInfo { PatchVersion = S(m, "patch_version") };
+            object p;
+            info.HasPatch = m.TryGetValue("patch", out p) && p is bool && (bool)p;
+            var arr = m.ContainsKey("addcont") ? m["addcont"] as System.Collections.IEnumerable : null;
+            if (arr != null) foreach (var o in arr) { var s = o as string; if (!string.IsNullOrEmpty(s)) info.Addcont.Add(s); }
+            return info;
         }
 
         public bool Exists(string host, int port, string titleId)

@@ -54,6 +54,7 @@ static bool handle_api_uninstall_ac(sb_Stream* s, const char* method, const char
 static bool handle_api_uninstall_patch(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_uninstall_theme(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_is_exists(sb_Stream* s, const char* method, const char* path, char* in_data);
+static bool handle_api_installed(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_start_task(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_stop_task(sb_Stream* s, const char* method, const char* path, char* in_data);
 static bool handle_api_pause_task(sb_Stream* s, const char* method, const char* path, char* in_data);
@@ -86,6 +87,7 @@ static const struct handler_desc s_handlers[] = {
 	{ "/api/uninstall_patch", &handle_api_uninstall_patch, false, false, true },
 	{ "/api/uninstall_theme", &handle_api_uninstall_theme, false, false, true },
 	{ "/api/is_exists", &handle_api_is_exists, false, false, true },
+	{ "/api/installed", &handle_api_installed, false, false, false },
 	{ "/api/start_task", &handle_api_start_task, false, false, true },
 	{ "/api/stop_task", &handle_api_stop_task, false, false, true },
 	{ "/api/pause_task", &handle_api_pause_task, false, false, true },
@@ -726,6 +728,104 @@ static bool handle_api_is_exists(sb_Stream* s, const char* method, const char* p
 		} else {
 			kick_error_json(s, ret);
 		}
+		status = true;
+	}
+
+	request_close(&r);
+	return status;
+}
+
+/* Appends the names found in a directory to out as a JSON array body ("a", "b"). Returns false if it cannot be opened. */
+static bool list_dir_json(const char* dir, char* out, size_t out_size) {
+	char buf[4096];
+	size_t n = 0;
+	int count = 0;
+	int fd = sceKernelOpen(dir, O_RDONLY, 0);
+
+	out[0] = '\0';
+	if (fd < 0) {
+		return false;
+	}
+
+	for (;;) {
+		int offset = 0;
+		int ret;
+
+		memset(buf, 0, sizeof(buf));
+		ret = sceKernelGetdents(fd, buf, sizeof(buf));
+		if (ret <= 0) {
+			break;
+		}
+		while (offset < ret) {
+			struct dirent* entry = (struct dirent*)(buf + offset);
+
+			if (entry->d_fileno == 0 || entry->d_reclen == 0) {
+				break;
+			}
+			if (entry->d_name[0] != '.' && strlen(entry->d_name) < 64 && n + 80 < out_size && count < 64) {
+				int w = snprintf(out + n, out_size - n, "%s\"%s\"", count ? ", " : "", entry->d_name);
+				if (w > 0) {
+					n += (size_t)w;
+					count++;
+				}
+			}
+			offset += entry->d_reclen;
+		}
+	}
+
+	sceKernelClose(fd);
+	return true;
+}
+
+/* Reports the patch version and add-on content that is already installed for a title. */
+static bool handle_api_installed(sb_Stream* s, const char* method, const char* path, char* in_data) {
+	struct request r;
+	const char* value;
+	char title_id[PKG_TITLE_ID_SIZE + 1];
+	char dir[128];
+	char addcont[1536];
+	char version[32];
+	bool has_patch;
+	bool has_addcont;
+	bool status = false;
+
+	if (!request_open(&r, s, in_data)) {
+		return false;
+	}
+
+	if (request_text(&r, "title_id", &value)) {
+		struct sfo* sfo;
+
+		strlcpy(title_id, value, sizeof(title_id));
+		version[0] = '\0';
+
+		snprintf(dir, sizeof(dir), "/user/patch/%s/sce_sys/param.sfo", title_id);
+		has_patch = is_file_exists(dir);
+		if (!has_patch) {
+			char probe[1024];
+			snprintf(dir, sizeof(dir), "/user/patch/%s", title_id);
+			has_patch = list_dir_json(dir, probe, sizeof(probe));
+		} else {
+			sfo = sfo_alloc();
+			if (sfo) {
+				if (sfo_load_from_file(sfo, dir)) {
+					struct sfo_entry* e = sfo_find_entry(sfo, "APP_VER");
+					if (e && e->format == SFO_FORMAT_STRING && e->size > 0) {
+						strlcpy(version, (const char*)e->value, sizeof(version));
+					}
+				}
+				sfo_free(sfo);
+			}
+		}
+
+		snprintf(dir, sizeof(dir), "/user/addcont/%s", title_id);
+		has_addcont = list_dir_json(dir, addcont, sizeof(addcont));
+
+		log_write("installed? %s patch=%d version='%s' addcont=%d [%.300s]", title_id, has_patch ? 1 : 0, version, has_addcont ? 1 : 0, addcont);
+
+		kick_result_header_json(s);
+		sb_writef(s, "{ \"status\": \"success\", \"patch\": %s, \"patch_version\": \"%s\", \"addcont\": [ %s ] }\n",
+			has_patch ? "true" : "false", version, has_addcont ? addcont : "");
 		status = true;
 	}
 

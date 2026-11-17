@@ -1,3 +1,8 @@
+## Sleepy Package Installer v1.13
+
+### Added in 1.13
+- **`/api/installed`** reports the installed patch version and add-on content of a title (read from `/user/patch` and `/user/addcont`), so the PC client can skip updates and DLC the console already has.
+
 ## Sleepy Package Installer v1.12
 
 ### Fixed in 1.12
